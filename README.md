@@ -1,6 +1,6 @@
 <h1 align="center">
   <a href="https://github.com/MatiDeZeta/GitHuBot">
-    <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark-64px.png" alt="GitHuBot" width="72">
+    <img src="https://i.imgur.com/pREImdE.png" alt="GitHuBot" width="72">
   </a>
   <br>
   GitHuBot
