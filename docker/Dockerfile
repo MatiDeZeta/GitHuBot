@@ -7,12 +7,12 @@ RUN apk add --no-cache libc6-compat python3 make g++ \
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile=false
 
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json tsconfig.json drizzle.config.ts ./
+COPY package.json pnpm-workspace.yaml tsconfig.json drizzle.config.ts ./
 COPY src ./src
 COPY drizzle ./drizzle
 RUN pnpm build \
