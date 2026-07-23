@@ -1,9 +1,9 @@
 import type { IssueCommentPayload } from "../../github/payloads.js";
 import { Accents, truncate } from "./design.js";
 import {
+	authorSection,
 	buildMessage,
 	container,
-	eventHeader,
 	linkButton,
 	linkRow,
 	separator,
@@ -21,16 +21,16 @@ export function formatIssueComment(payload: IssueCommentPayload): FormattedMessa
 
 	const c = container(Accents.comment);
 	c.addSectionComponents(
-		eventHeader(
-			repo,
-			`${label} on [#${payload.issue.number}](${payload.issue.html_url})`,
+		authorSection(
+			[
+				`**${repo}**`,
+				`${label} on [#${payload.issue.number}](${payload.issue.html_url}) · **${payload.issue.title}**`,
+			],
 			author?.avatar_url,
 		),
 	);
 	c.addSeparatorComponents(separator());
-	c.addTextDisplayComponents(
-		text(`**${payload.issue.title}**\n> ${truncate(payload.comment.body)}`),
-	);
+	c.addTextDisplayComponents(text(`> ${truncate(payload.comment.body)}`));
 	c.addActionRowComponents(linkRow(linkButton("View Comment", payload.comment.html_url)));
 	return buildMessage([c]);
 }

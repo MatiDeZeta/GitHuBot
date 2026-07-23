@@ -57,18 +57,6 @@ export function authorSection(
 	return section;
 }
 
-/**
- * Secondary metadata header: repo is quiet (`owner/repo`), event summary is plain.
- * Primary content belongs in a body TextDisplay after a separator — not here.
- */
-export function eventHeader(
-	repo: string,
-	summary: string,
-	avatarUrl: string | undefined,
-): SectionBuilder {
-	return authorSection([`\`${repo}\``, summary], avatarUrl);
-}
-
 export function container(accent: number): ContainerBuilder {
 	return new ContainerBuilder().setAccentColor(accent);
 }

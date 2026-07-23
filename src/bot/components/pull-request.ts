@@ -1,9 +1,9 @@
 import type { PullRequestPayload } from "../../github/payloads.js";
 import { Accents, truncate } from "./design.js";
 import {
+	authorSection,
 	buildMessage,
 	container,
-	eventHeader,
 	linkButton,
 	linkRow,
 	separator,
@@ -40,17 +40,26 @@ export function formatPullRequest(payload: PullRequestPayload): FormattedMessage
 	const head = pr.head?.ref;
 	const branchLine = base && head ? `\`${head}\` → \`${base}\`` : undefined;
 
-	const bodyParts: string[] = [
-		`**${pr.title}**`,
-		`[#${payload.number}](${pr.html_url})`,
-	];
-	if (branchLine) bodyParts.push(branchLine);
-	if (pr.body) bodyParts.push(`> ${truncate(pr.body)}`);
-
 	const c = container(accent);
-	c.addSectionComponents(eventHeader(repo, headline, author?.avatar_url));
-	c.addSeparatorComponents(separator());
-	c.addTextDisplayComponents(text(bodyParts.join("\n")));
+	c.addSectionComponents(
+		authorSection(
+			[
+				`**${repo}**`,
+				`${headline} · [#${payload.number}](${pr.html_url})`,
+				`**${pr.title}**`,
+			],
+			author?.avatar_url,
+		),
+	);
+
+	if (branchLine || pr.body) {
+		c.addSeparatorComponents(separator());
+		const parts: string[] = [];
+		if (branchLine) parts.push(branchLine);
+		if (pr.body) parts.push(`> ${truncate(pr.body)}`);
+		c.addTextDisplayComponents(text(parts.join("\n")));
+	}
+
 	c.addActionRowComponents(linkRow(linkButton("View Pull Request", pr.html_url)));
 	return buildMessage([c]);
 }

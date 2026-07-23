@@ -1,9 +1,9 @@
 import type { ReleasePayload } from "../../github/payloads.js";
-import { Accents } from "./design.js";
+import { Accents, shortReleaseDescription } from "./design.js";
 import {
+	authorSection,
 	buildMessage,
 	container,
-	eventHeader,
 	linkButton,
 	linkRow,
 	separator,
@@ -19,21 +19,34 @@ export function formatRelease(payload: ReleasePayload): FormattedMessage | null 
 	const author = release.author ?? payload.sender;
 	const tag = release.tag_name;
 	const name = release.name?.trim();
+	const title = name && name !== tag ? name : tag;
 	const assetCount = release.assets?.length ?? 0;
 
-	const bodyLines: string[] = [`**${tag}**`];
-	if (name && name !== tag) {
-		bodyLines.push(name);
-	}
-	const meta: string[] = [];
-	if (release.prerelease) meta.push("_Pre-release_");
-	if (assetCount > 0) meta.push(`${assetCount} asset${assetCount === 1 ? "" : "s"}`);
-	if (meta.length > 0) bodyLines.push(meta.join(" · "));
-
 	const c = container(Accents.release);
-	c.addSectionComponents(eventHeader(repo, "Release published", author?.avatar_url));
-	c.addSeparatorComponents(separator());
-	c.addTextDisplayComponents(text(bodyLines.join("\n")));
+	c.addSectionComponents(
+		authorSection(
+			[
+				`**${repo}**`,
+				`Release published · \`${tag}\``,
+				`**${title}**`,
+			],
+			author?.avatar_url,
+		),
+	);
+
+	const details: string[] = [];
+	if (release.prerelease) details.push("_Pre-release_");
+	if (assetCount > 0) details.push(`${assetCount} asset${assetCount === 1 ? "" : "s"}`);
+	if (release.body) {
+		const blurb = shortReleaseDescription(release.body);
+		if (blurb) details.push(`> ${blurb}`);
+	}
+
+	if (details.length > 0) {
+		c.addSeparatorComponents(separator());
+		c.addTextDisplayComponents(text(details.join("\n")));
+	}
+
 	c.addActionRowComponents(linkRow(linkButton("View Release", release.html_url)));
 	return buildMessage([c]);
 }

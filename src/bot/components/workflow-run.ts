@@ -1,13 +1,11 @@
 import type { WorkflowRunPayload } from "../../github/payloads.js";
 import { Accents } from "./design.js";
 import {
+	authorSection,
 	buildMessage,
 	container,
-	eventHeader,
 	linkButton,
 	linkRow,
-	separator,
-	text,
 	type FormattedMessage,
 } from "./shared.js";
 
@@ -23,14 +21,15 @@ export function formatWorkflowRun(payload: WorkflowRunPayload): FormattedMessage
 
 	const c = container(accent);
 	c.addSectionComponents(
-		eventHeader(
-			payload.repository.full_name,
-			`CI ${conclusion}${branch}`,
+		authorSection(
+			[
+				`**${payload.repository.full_name}**`,
+				`CI ${conclusion}${branch}`,
+				`**${name}**`,
+			],
 			run.actor?.avatar_url ?? payload.sender?.avatar_url,
 		),
 	);
-	c.addSeparatorComponents(separator());
-	c.addTextDisplayComponents(text(`**${name}**`));
 	c.addActionRowComponents(linkRow(linkButton("View Run", run.html_url)));
 	return buildMessage([c]);
 }

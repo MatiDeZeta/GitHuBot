@@ -34,6 +34,19 @@ export function truncate(text: string, max = MAX_BODY_PREVIEW): string {
 	return `${cleaned.slice(0, max - 1)}…`;
 }
 
+/** Plain short blurb from release notes — strip headings/lists so Discord doesn't look cut mid-markdown. */
+export function shortReleaseDescription(body: string, max = MAX_BODY_PREVIEW): string {
+	const plain = body
+		.replace(/\r\n/g, "\n")
+		.replace(/^#{1,6}\s+.+$/gm, "")
+		.replace(/^\s*[-*+]\s+/gm, "")
+		.replace(/^\s*\d+\.\s+/gm, "")
+		.replace(/\n{2,}/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	return truncate(plain, max);
+}
+
 export function branchFromRef(ref: string): string {
 	return ref.replace(/^refs\/(heads|tags)\//, "");
 }

@@ -121,8 +121,7 @@ describe("formatters", () => {
 		});
 		expect(msg).not.toBeNull();
 		const serialized = JSON.stringify(msg);
-		expect(serialized).toContain("`acme/app`");
-		expect(serialized).not.toContain("**acme/app**");
+		expect(serialized).toContain("**acme/app**");
 		expect(serialized).toContain("**feat: add thing**");
 		expect(msg?.flags).toBeDefined();
 	});
@@ -146,14 +145,14 @@ describe("formatters", () => {
 		expect(msg).toBeNull();
 	});
 
-	it("formats a slim release without dumping release notes body", () => {
+	it("formats a release with version and a short description", () => {
 		const msg = formatGitHubEvent("release", {
 			action: "published",
 			release: {
 				html_url: "https://github.com/acme/app/releases/tag/v1.0.0",
 				tag_name: "v1.0.0",
 				name: "GitHuBot v1.0.0 — Release Notes",
-				body: "# GitHuBot v1.0.0 — Release Notes\n\n## Highlights\n\n- lots of notes",
+				body: "# GitHuBot v1.0.0 — Release Notes\n\n## Highlights\n\n- lots of notes about the ship",
 				author: {
 					login: "ada",
 					avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
@@ -169,9 +168,11 @@ describe("formatters", () => {
 		});
 		expect(msg).not.toBeNull();
 		const serialized = JSON.stringify(msg);
-		expect(serialized).toContain("**v1.0.0**");
+		expect(serialized).toContain("**acme/app**");
+		expect(serialized).toContain("`v1.0.0`");
+		expect(serialized).toContain("**GitHuBot v1.0.0 — Release Notes**");
+		expect(serialized).toContain("lots of notes about the ship");
 		expect(serialized).not.toContain("## Highlights");
-		expect(serialized).not.toContain("lots of notes");
 	});
 
 	it("formats a merged pull request distinctly", () => {

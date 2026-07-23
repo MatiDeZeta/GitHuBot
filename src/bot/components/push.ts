@@ -7,9 +7,9 @@ import {
 	shortSha,
 } from "./design.js";
 import {
+	authorSection,
 	buildMessage,
 	container,
-	eventHeader,
 	linkButton,
 	linkRow,
 	separator,
@@ -43,9 +43,11 @@ export function formatPush(payload: PushPayload): FormattedMessage | null {
 
 	const c = container(Accents.push);
 	c.addSectionComponents(
-		eventHeader(
-			repo,
-			`Push to \`${branch}\` · ${commits.length} commit${commits.length === 1 ? "" : "s"}`,
+		authorSection(
+			[
+				`**${repo}**`,
+				`Push to \`${branch}\` · **${commits.length}** commit${commits.length === 1 ? "" : "s"}`,
+			],
 			sender?.avatar_url,
 		),
 	);
@@ -53,12 +55,12 @@ export function formatPush(payload: PushPayload): FormattedMessage | null {
 	c.addTextDisplayComponents(text(commitLines.join("\n")));
 
 	const buttons = [];
+	if (payload.compare) {
+		buttons.push(linkButton("Compare", payload.compare));
+	}
 	const head = payload.head_commit ?? commits[0];
 	if (head?.url) {
 		buttons.push(linkButton("View Commit", head.url));
-	}
-	if (payload.compare && commits.length > 1) {
-		buttons.push(linkButton("Compare", payload.compare));
 	}
 	if (buttons.length > 0) {
 		c.addActionRowComponents(linkRow(...buttons.slice(0, 5)));
