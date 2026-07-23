@@ -137,7 +137,7 @@ pnpm dev
 | `PUBLIC_WEBHOOK_URL` | yes* | Public base URL (`https://…` or bare host) |
 | `DISCORD_GUILD_ID` | no | Register slash commands to one guild (faster in dev) |
 | `DISCORD_ALLOWED_USER_ID` | no | Restrict `/repo` to one Discord user ID |
-| `DATABASE_URL` | no | Default `file:./data/githubot.db`, or `postgresql://…` |
+| `DATABASE_URL` | no | Default `file:/app/data/githubot.db` in Docker; local default `file:./data/githubot.db`; or `postgresql://…` |
 | `PORT` / `HOST` | no | Default `3000` / `0.0.0.0` |
 | `LOG_LEVEL` | no | Default `info` |
 
@@ -164,10 +164,12 @@ SQLite persists in the `githubot-data` volume.
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new)
 
 1. Deploy from this repo (`docker/Dockerfile` via `railway.json`)
-2. Attach a volume at `/app/data`
-3. Set env vars from the table above
-4. Set `PUBLIC_WEBHOOK_URL` to your Railway public domain
+2. Attach a volume at **`/app/data`**
+3. Set `DATABASE_URL=file:/app/data/githubot.db` (required with the volume)
+4. Set the other env vars from the table above
+5. Set `PUBLIC_WEBHOOK_URL` to your Railway public domain
 
+The image entrypoint `chown`s `/app/data` on boot so the non-root process can create SQLite files on Railway volumes.
 * **Postgres** — set `DATABASE_URL=postgresql://…` (migrations under `drizzle/pg`)
 
 ---

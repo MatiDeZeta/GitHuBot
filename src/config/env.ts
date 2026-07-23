@@ -103,5 +103,11 @@ export function isPostgresUrl(url: string): boolean {
 }
 
 export function sqlitePathFromUrl(url: string): string {
-	return url.replace(/^file:/, "");
+	// file:///abs/path → /abs/path ; file:./rel → ./rel ; file:/abs → /abs
+	const stripped = url.replace(/^file:\/\//, "").replace(/^file:/, "");
+	if (stripped.startsWith("/") || /^[A-Za-z]:[\\/]/.test(stripped)) {
+		return stripped;
+	}
+	// file:///C:/... on Windows already handled; bare relative paths stay relative
+	return stripped.startsWith("//") ? stripped.slice(1) : stripped;
 }

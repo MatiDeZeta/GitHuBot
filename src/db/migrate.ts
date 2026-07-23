@@ -10,43 +10,50 @@ const root = join(here, "../..");
 
 function applySqliteMigrations(databaseUrl: string): void {
 	const path = sqlitePathFromUrl(databaseUrl);
-	mkdirSync(dirname(path), { recursive: true });
-	const db = new Database(path);
-	db.pragma("foreign_keys = ON");
-	db.exec(`
+	try {
+		mkdirSync(dirname(path), { recursive: true });
+		const db = new Database(path);
+		db.pragma("foreign_keys = ON");
+		db.exec(`
 		CREATE TABLE IF NOT EXISTS __migrations (
 			id TEXT PRIMARY KEY,
 			applied_at INTEGER NOT NULL
 		);
 	`);
 
-	const migrationsDir = join(root, "drizzle", "sqlite");
-	if (!existsSync(migrationsDir)) {
-		db.close();
-		return;
-	}
+		const migrationsDir = join(root, "drizzle", "sqlite");
+		if (!existsSync(migrationsDir)) {
+			db.close();
+			return;
+		}
 
-	const files = readdirSync(migrationsDir)
-		.filter((f) => f.endsWith(".sql"))
-		.sort();
+		const files = readdirSync(migrationsDir)
+			.filter((f) => f.endsWith(".sql"))
+			.sort();
 
-	const applied = new Set(
-		db
-			.prepare("SELECT id FROM __migrations")
-			.all()
-			.map((row) => (row as { id: string }).id),
-	);
-
-	for (const file of files) {
-		if (applied.has(file)) continue;
-		const sql = readFileSync(join(migrationsDir, file), "utf8");
-		db.exec(sql);
-		db.prepare("INSERT INTO __migrations (id, applied_at) VALUES (?, ?)").run(
-			file,
-			Date.now(),
+		const applied = new Set(
+			db
+				.prepare("SELECT id FROM __migrations")
+				.all()
+				.map((row) => (row as { id: string }).id),
 		);
+
+		for (const file of files) {
+			if (applied.has(file)) continue;
+			const sql = readFileSync(join(migrationsDir, file), "utf8");
+			db.exec(sql);
+			db.prepare("INSERT INTO __migrations (id, applied_at) VALUES (?, ?)").run(
+				file,
+				Date.now(),
+			);
+		}
+		db.close();
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`SQLite open/migrate failed for path "${path}": ${message}`, {
+			cause: err,
+		});
 	}
-	db.close();
 }
 
 async function applyPgMigrations(databaseUrl: string): Promise<void> {
