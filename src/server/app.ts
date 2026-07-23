@@ -1,3 +1,4 @@
+import Fastify, { type FastifyInstance } from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import {
 	ChannelType,
@@ -5,14 +6,10 @@ import {
 	type NewsChannel,
 	type TextChannel,
 } from "discord.js";
-import Fastify, {
-	type FastifyInstance,
-	type FastifyReply,
-	type FastifyRequest,
-} from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { formatGitHubEvent } from "../bot/components/index.js";
 import { githubEventToType } from "../config/events.js";
-import type { Env } from "../config/env.js";
+import { isFullyConfigured, missingConfigKeys, type Env } from "../config/env.js";
 import type { Logger } from "../config/logger.js";
 import { decryptSecret } from "../crypto/secrets.js";
 import type { RepoRepository } from "../db/types.js";
@@ -21,9 +18,10 @@ import { verifyGitHubSignature } from "../github/verify.js";
 export interface ServerContext {
 	env: Env;
 	logger: Logger;
-	repository: RepoRepository;
-	masterKey: Buffer;
-	discord: Client;
+	repository: RepoRepository | null;
+	masterKey: Buffer | null;
+	discord: Client | null;
+	ready: boolean;
 }
 
 declare module "fastify" {
@@ -59,7 +57,12 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		hook: "preHandler",
 	});
 
-	app.get("/health", async () => ({ ok: true, service: "githubot" }));
+	app.get("/health", async () => ({
+		ok: true,
+		service: "githubot",
+		configured: isFullyConfigured(ctx.env) && ctx.ready,
+		missing: missingConfigKeys(ctx.env),
+	}));
 
 	app.post<{ Params: { trackingId: string } }>(
 		"/webhooks/github/:trackingId",
@@ -82,6 +85,17 @@ async function handleWebhook(
 	reply: FastifyReply,
 	ctx: ServerContext,
 ): Promise<FastifyReply> {
+	if (!ctx.ready || !ctx.repository || !ctx.masterKey || !ctx.discord) {
+		return reply.code(503).send({
+			error: "Bot not fully configured",
+			missing: missingConfigKeys(ctx.env),
+		});
+	}
+
+	const repository = ctx.repository;
+	const masterKey = ctx.masterKey;
+	const discord = ctx.discord;
+
 	const { trackingId } = request.params;
 	const deliveryId = header(request, "x-github-delivery");
 	const eventName = header(request, "x-github-event");
@@ -92,7 +106,7 @@ async function handleWebhook(
 		return reply.code(400).send({ error: "Missing GitHub webhook headers" });
 	}
 
-	const tracked = await ctx.repository.findByTrackingId(trackingId);
+	const tracked = await repository.findByTrackingId(trackingId);
 	if (!tracked) {
 		ctx.logger.warn({ trackingId }, "Unknown tracking id");
 		return reply.code(404).send({ error: "Unknown webhook" });
@@ -101,9 +115,9 @@ async function handleWebhook(
 	let secret: string;
 	const previousSecrets: string[] = [];
 	try {
-		secret = decryptSecret(tracked.encryptedSecret, ctx.masterKey);
+		secret = decryptSecret(tracked.encryptedSecret, masterKey);
 		if (tracked.encryptedPreviousSecret) {
-			previousSecrets.push(decryptSecret(tracked.encryptedPreviousSecret, ctx.masterKey));
+			previousSecrets.push(decryptSecret(tracked.encryptedPreviousSecret, masterKey));
 		}
 	} catch (err) {
 		ctx.logger.error({ err, trackingId }, "Failed to decrypt webhook secret");
@@ -116,12 +130,11 @@ async function handleWebhook(
 		return reply.code(401).send({ error: "Invalid signature" });
 	}
 
-	// Once GitHub is signing with the new secret, drop the rotation fallback.
 	if (match === "primary" && tracked.encryptedPreviousSecret) {
-		await ctx.repository.clearPreviousSecret(trackingId);
+		await repository.clearPreviousSecret(trackingId);
 	}
 
-	const isNew = await ctx.repository.tryRecordDelivery(deliveryId, trackingId);
+	const isNew = await repository.tryRecordDelivery(deliveryId, trackingId);
 	if (!isNew) {
 		ctx.logger.info({ deliveryId }, "Duplicate delivery ignored");
 		return reply.code(200).send({ ok: true, duplicate: true });
@@ -147,7 +160,7 @@ async function handleWebhook(
 	}
 
 	try {
-		const channel = await ctx.discord.channels.fetch(tracked.channelId);
+		const channel = await discord.channels.fetch(tracked.channelId);
 		if (
 			!channel ||
 			(channel.type !== ChannelType.GuildText &&

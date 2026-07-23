@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-sqlite";
+import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { parseEnabledEvents, type EventType } from "../config/events.js";
 import * as schema from "./schema.sqlite.js";
 import type {
@@ -9,7 +9,7 @@ import type {
 	TrackedRepo,
 } from "./types.js";
 
-type SqliteDb = ReturnType<typeof drizzle<typeof schema>>;
+type SqliteDb = BetterSQLite3Database<typeof schema>;
 
 function mapRow(row: typeof schema.trackedRepos.$inferSelect): TrackedRepo {
 	return {

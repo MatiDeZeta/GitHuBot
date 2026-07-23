@@ -1,3 +1,4 @@
 # Single-package repo — settings live here for pnpm 11+
 allowBuilds:
+  better-sqlite3: true
   esbuild: true

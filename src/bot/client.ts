@@ -7,13 +7,13 @@ import {
 	type ChatInputCommandInteraction,
 	type Interaction,
 } from "discord.js";
-import type { Env } from "../config/env.js";
+import type { FullyConfiguredEnv } from "../config/env.js";
 import type { Logger } from "../config/logger.js";
 import type { RepoRepository } from "../db/types.js";
 import { repoCommand, handleRepoCommand, handleRepoSelect } from "./commands/repo.js";
 
 export interface BotContext {
-	env: Env;
+	env: FullyConfiguredEnv;
 	logger: Logger;
 	repository: RepoRepository;
 	masterKey: Buffer;
@@ -65,7 +65,11 @@ async function onChatInput(interaction: ChatInputCommandInteraction, ctx: BotCon
 	await handleRepoCommand(interaction, ctx);
 }
 
-export async function registerCommands(client: Client, env: Env, logger: Logger): Promise<void> {
+export async function registerCommands(
+	client: Client,
+	env: FullyConfiguredEnv,
+	logger: Logger,
+): Promise<void> {
 	const body = [repoCommand.data.toJSON()];
 	if (env.DISCORD_GUILD_ID) {
 		const guild = await client.guilds.fetch(env.DISCORD_GUILD_ID);

@@ -16,12 +16,21 @@ const masterKeySchema = z
 		{ error: "MASTER_KEY must be 32 bytes as 64 hex chars or base64" },
 	);
 
+const emptyToUndefined = (value: unknown) =>
+	typeof value === "string" && value.trim() === "" ? undefined : value;
+
 const envSchema = z.object({
-	DISCORD_TOKEN: z.string().min(1),
-	DISCORD_CLIENT_ID: z.string().min(1),
-	DISCORD_GUILD_ID: z.string().optional(),
-	MASTER_KEY: masterKeySchema,
-	PUBLIC_WEBHOOK_URL: z.url().transform((url) => url.replace(/\/$/, "")),
+	DISCORD_TOKEN: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+	DISCORD_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+	DISCORD_GUILD_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+	MASTER_KEY: z.preprocess(emptyToUndefined, masterKeySchema.optional()),
+	PUBLIC_WEBHOOK_URL: z.preprocess(
+		emptyToUndefined,
+		z
+			.url()
+			.transform((url) => url.replace(/\/$/, ""))
+			.optional(),
+	),
 	DATABASE_URL: z.string().default("file:./data/githubot.db"),
 	PORT: z.coerce.number().int().positive().default(3000),
 	HOST: z.string().default("0.0.0.0"),
@@ -32,6 +41,13 @@ const envSchema = z.object({
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+export type FullyConfiguredEnv = Env & {
+	DISCORD_TOKEN: string;
+	DISCORD_CLIENT_ID: string;
+	MASTER_KEY: string;
+	PUBLIC_WEBHOOK_URL: string;
+};
 
 let cached: Env | undefined;
 
@@ -50,6 +66,24 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
 
 export function resetEnvCache(): void {
 	cached = undefined;
+}
+
+export function isFullyConfigured(env: Env): env is FullyConfiguredEnv {
+	return Boolean(
+		env.DISCORD_TOKEN &&
+			env.DISCORD_CLIENT_ID &&
+			env.MASTER_KEY &&
+			env.PUBLIC_WEBHOOK_URL,
+	);
+}
+
+export function missingConfigKeys(env: Env): string[] {
+	const missing: string[] = [];
+	if (!env.DISCORD_TOKEN) missing.push("DISCORD_TOKEN");
+	if (!env.DISCORD_CLIENT_ID) missing.push("DISCORD_CLIENT_ID");
+	if (!env.MASTER_KEY) missing.push("MASTER_KEY");
+	if (!env.PUBLIC_WEBHOOK_URL) missing.push("PUBLIC_WEBHOOK_URL");
+	return missing;
 }
 
 export function isPostgresUrl(url: string): boolean {
