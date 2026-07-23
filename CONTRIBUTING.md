@@ -34,5 +34,5 @@ Conventional Commits are preferred (`feat:`, `fix:`, `docs:`, `chore:`, `test:`,
 ## Pull requests
 
 1. Fork and create a feature branch.
-2. Ensure `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` pass.
+2. Ensure `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` pass locally (CI is manual via `workflow_dispatch` only).
 3. Open a PR against `main` with a short summary and test notes.
