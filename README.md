@@ -1,9 +1,9 @@
 # GitHuBot
 
-[![CI](https://img.shields.io/github/actions/workflow/status/YOUR_ORG/GitHuBot/ci.yml?branch=main&style=flat-square)](https://github.com/YOUR_ORG/GitHuBot/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-22_LTS-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![discord.js](https://img.shields.io/badge/discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.js.org/)
+[![pnpm](https://img.shields.io/badge/pnpm-11-F69220?style=flat-square&logo=pnpm&logoColor=white)](https://pnpm.io/)
 
 Beautiful Discord changelog messages for GitHub activity — **without giving the bot any GitHub credentials**.
 
