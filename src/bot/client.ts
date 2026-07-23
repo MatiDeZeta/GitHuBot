@@ -3,7 +3,9 @@ import {
 	Collection,
 	Events,
 	GatewayIntentBits,
+	MessageFlags,
 	Partials,
+	TextDisplayBuilder,
 	type ChatInputCommandInteraction,
 	type Interaction,
 } from "discord.js";
@@ -49,16 +51,33 @@ export function createBot(ctx: BotContext): Client {
 			}
 		} catch (err) {
 			ctx.logger.error({ err }, "Interaction handler failed");
-			const reply = {
-				content: "Something went wrong handling that interaction.",
-				ephemeral: true,
+			const v2Error = {
+				flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+				components: [
+					new TextDisplayBuilder().setContent(
+						"Something went wrong handling that interaction.",
+					),
+				],
 			};
-			if (interaction.isRepliable()) {
-				if (interaction.replied || interaction.deferred) {
-					await interaction.followUp(reply).catch(() => undefined);
+			if (!interaction.isRepliable()) return;
+			try {
+				if (interaction.deferred || interaction.replied) {
+					// Deferred V2 replies cannot use legacy `content` follow-ups.
+					if (interaction.deferred && !interaction.replied) {
+						await interaction.editReply({
+							content: null,
+							embeds: [],
+							flags: MessageFlags.IsComponentsV2,
+							components: v2Error.components,
+						});
+					} else {
+						await interaction.followUp(v2Error);
+					}
 				} else {
-					await interaction.reply(reply).catch(() => undefined);
+					await interaction.reply(v2Error);
 				}
+			} catch (replyErr) {
+				ctx.logger.error({ err: replyErr }, "Failed to send interaction error reply");
 			}
 		}
 	});

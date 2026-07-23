@@ -16,8 +16,11 @@ const masterKeySchema = z
 		{ error: "MASTER_KEY must be 32 bytes as 64 hex chars or base64" },
 	);
 
-const emptyToUndefined = (value: unknown) =>
-	typeof value === "string" && value.trim() === "" ? undefined : value;
+const emptyToUndefined = (value: unknown) => {
+	if (typeof value !== "string") return value;
+	const trimmed = value.trim().replace(/^['"]|['"]$/g, "");
+	return trimmed === "" ? undefined : trimmed;
+};
 
 /** Accept full URLs or bare hosts like `foo.up.railway.app` (assumes https). */
 function normalizePublicWebhookUrl(value: unknown): unknown {

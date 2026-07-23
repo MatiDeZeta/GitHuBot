@@ -103,6 +103,15 @@ function ephemeralText(content: string) {
 	};
 }
 
+function ephemeralV2Edit(content: string) {
+	return {
+		content: null,
+		embeds: [],
+		flags: MessageFlags.IsComponentsV2,
+		components: [new TextDisplayBuilder().setContent(content)],
+	};
+}
+
 function parseRepoOption(
 	interaction: ChatInputCommandInteraction,
 ): { error: string } | { value: { owner: string; repo: string; slug: string } } {
@@ -239,7 +248,9 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: BotConte
 		return;
 	}
 
-	await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+	await interaction.deferReply({
+		flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+	});
 
 	const warning = await maybeWarnPrivateRepo(owner, repo);
 	const trackingId = generateTrackingId();
@@ -258,26 +269,18 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: BotConte
 		});
 	} catch (err) {
 		ctx.logger.error({ err }, "Failed to add repo");
-		await interaction.editReply({
-			flags: MessageFlags.IsComponentsV2,
-			components: [
-				new TextDisplayBuilder().setContent(
-					"Failed to save the repository. It may already be tracked.",
-				),
-			],
-		});
+		await interaction.editReply(
+			ephemeralV2Edit("Failed to save the repository. It may already be tracked."),
+		);
 		return;
 	}
 
 	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, trackingId);
-	await interaction.editReply({
-		flags: MessageFlags.IsComponentsV2,
-		components: [
-			new TextDisplayBuilder().setContent(
-				setupInstructions({ owner, repo, payloadUrl, secret, extra: warning }),
-			),
-		],
-	});
+	await interaction.editReply(
+		ephemeralV2Edit(
+			setupInstructions({ owner, repo, payloadUrl, secret, extra: warning }),
+		),
+	);
 }
 
 async function handleRemove(interaction: ChatInputCommandInteraction, ctx: BotContext) {
@@ -402,6 +405,8 @@ export async function handleRepoSelect(
 	);
 
 	await interaction.update({
+		content: null,
+		embeds: [],
 		flags: MessageFlags.IsComponentsV2,
 		components: [
 			new TextDisplayBuilder().setContent(
