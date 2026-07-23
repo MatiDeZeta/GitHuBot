@@ -21,7 +21,7 @@ GitHuBot replaces GitHub’s default Discord webhook spam with branded [Componen
 - Components V2 design system (accent colors, avatars, link buttons — no embeds)
 - Event filtering per repository (`/repo events`)
 - Signature verification, delivery dedupe, webhook rate limiting
-- SQLite by default via Node’s built-in `node:sqlite` (Railway volume / Docker volume); Postgres via `DATABASE_URL`
+- SQLite by default (Railway volume / Docker volume); Postgres via `DATABASE_URL`
 - One-click Railway deploy + docker-compose for any VPS
 
 ## Architecture
@@ -75,7 +75,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `DISCORD_GUILD_ID` | no | Register slash commands to one guild (faster in dev) |
 | `MASTER_KEY` | yes | 32-byte key (64 hex chars or base64) for AES-256-GCM |
 | `PUBLIC_WEBHOOK_URL` | yes | Public base URL, e.g. `https://your-app.up.railway.app` |
-| `DATABASE_URL` | no | Default `file:./data/githubot.db` (Node `node:sqlite`), or `postgresql://…` |
+| `DATABASE_URL` | no | Default `file:./data/githubot.db`, or `postgresql://…` |
 | `PORT` / `HOST` | no | Default `3000` / `0.0.0.0` |
 | `LOG_LEVEL` | no | Default `info` |
 

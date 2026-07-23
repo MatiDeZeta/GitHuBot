@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { drizzle as drizzleSqlite } from "drizzle-orm/node-sqlite";
+import Database from "better-sqlite3";
+import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { isPostgresUrl, sqlitePathFromUrl } from "../config/env.js";
@@ -32,9 +32,9 @@ export function createDb(databaseUrl: string): DbHandle {
 
 	const path = sqlitePathFromUrl(databaseUrl);
 	mkdirSync(dirname(path), { recursive: true });
-	const sqlite = new DatabaseSync(path);
-	sqlite.exec("PRAGMA journal_mode = WAL;");
-	sqlite.exec("PRAGMA foreign_keys = ON;");
+	const sqlite = new Database(path);
+	sqlite.pragma("journal_mode = WAL");
+	sqlite.pragma("foreign_keys = ON");
 	const db = drizzleSqlite(sqlite, { schema: sqliteSchema });
 	return {
 		kind: "sqlite",
