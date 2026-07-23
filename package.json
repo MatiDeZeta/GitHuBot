@@ -1,6 +1,6 @@
 {
   "name": "githubot",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Beautiful Discord changelog messages for GitHub activity — zero GitHub credentials required",
   "type": "module",
   "private": true,
