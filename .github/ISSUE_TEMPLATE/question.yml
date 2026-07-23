@@ -1,0 +1,40 @@
+name: Question / support
+description: Ask about setup, webhooks, hosting, or how an event should look
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Prefer checking the [README](https://github.com/MatiDeZeta/GitHuBot/blob/main/README.md) and [CONTRIBUTING](https://github.com/MatiDeZeta/GitHuBot/blob/main/CONTRIBUTING.md) first. For confirmed bugs, use the **Bug report** template.
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      options:
+        - Discord bot invite / permissions
+        - `/repo add` and webhook setup
+        - Signature verification failures
+        - Event not posting / filters
+        - Message looks wrong
+        - Railway / Docker deploy
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and where are you stuck?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Hosting, GitHuBot version, and any non-secret config that helps. Redact secrets.
+    validations:
+      required: false

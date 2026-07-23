@@ -1,0 +1,59 @@
+name: Feature request
+description: Propose an enhancement that fits the zero-credential webhook model
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        GitHuBot is a **webhook receiver only** — no GitHub API token and no write access to GitHub. Feature ideas that require the bot to call the GitHub API will usually be out of scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What pain point are you solving?
+      placeholder: e.g. Release messages feel too thin / too noisy for large monorepos.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How should it work from a user or operator perspective?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Touches
+      description: Which surface would this change?
+      options:
+        - Event formatting (push, PR, release, …)
+        - Slash commands (/repo)
+        - Event filters / config
+        - Deploy / ops
+        - Docs
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about (optional).
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This does not require the bot to hold a GitHub token or call the GitHub API.
+          required: true
+        - label: I searched existing issues / discussions for a similar request.
+          required: true
