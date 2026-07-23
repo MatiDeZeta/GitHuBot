@@ -61,7 +61,7 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 
 	app.get("/health", async () => ({ ok: true, service: "githubot" }));
 
-	app.post(
+	app.post<{ Params: { trackingId: string } }>(
 		"/webhooks/github/:trackingId",
 		{
 			config: {

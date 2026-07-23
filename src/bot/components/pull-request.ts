@@ -16,7 +16,7 @@ export function formatPullRequest(payload: PullRequestPayload): FormattedMessage
 	const merged = pr.merged === true;
 	const action = payload.action;
 
-	let accent = Accents.prOpen;
+	let accent: number = Accents.prOpen;
 	let headline = "Pull request updated";
 
 	if (action === "opened" || action === "reopened") {
