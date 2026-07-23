@@ -103,13 +103,16 @@ function ephemeralText(content: string) {
 	};
 }
 
-function parseRepoOption(interaction: ChatInputCommandInteraction) {
+function parseRepoOption(
+	interaction: ChatInputCommandInteraction,
+): { error: string } | { value: { owner: string; repo: string; slug: string } } {
 	const raw = interaction.options.getString("repository", true);
 	const parsed = repoSlugSchema.safeParse(raw);
 	if (!parsed.success) {
-		return { error: parsed.error.issues[0]?.message ?? "Invalid repository format" } as const;
+		const message = parsed.error.issues[0]?.message;
+		return { error: typeof message === "string" ? message : "Invalid repository format" };
 	}
-	return { value: parsed.data } as const;
+	return { value: parsed.data };
 }
 
 async function maybeWarnPrivateRepo(owner: string, repo: string): Promise<string | null> {
