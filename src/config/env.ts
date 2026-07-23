@@ -28,10 +28,16 @@ function normalizePublicWebhookUrl(value: unknown): unknown {
 	return `https://${trimmed}`;
 }
 
+const snowflakeSchema = z
+	.string()
+	.regex(/^\d{17,20}$/, { error: "Must be a Discord snowflake user ID (17–20 digits)" });
+
 const envSchema = z.object({
 	DISCORD_TOKEN: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 	DISCORD_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
-	DISCORD_GUILD_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+	DISCORD_GUILD_ID: z.preprocess(emptyToUndefined, snowflakeSchema.optional()),
+	/** When set, only this Discord user may run /repo commands (and related selects). */
+	DISCORD_ALLOWED_USER_ID: z.preprocess(emptyToUndefined, snowflakeSchema.optional()),
 	MASTER_KEY: z.preprocess(emptyToUndefined, masterKeySchema.optional()),
 	PUBLIC_WEBHOOK_URL: z.preprocess(normalizePublicWebhookUrl, z.url().optional()),
 	DATABASE_URL: z.string().default("file:./data/githubot.db"),

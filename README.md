@@ -73,6 +73,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `DISCORD_TOKEN` | yes | Bot token |
 | `DISCORD_CLIENT_ID` | yes | Application ID |
 | `DISCORD_GUILD_ID` | no | Register slash commands to one guild (faster in dev) |
+| `DISCORD_ALLOWED_USER_ID` | no | If set, only this Discord user can run `/repo` commands |
 | `MASTER_KEY` | yes | 32-byte key (64 hex chars or base64) for AES-256-GCM |
 | `PUBLIC_WEBHOOK_URL` | yes | Public base URL, e.g. `https://your-app.up.railway.app` |
 | `DATABASE_URL` | no | Default `file:./data/githubot.db`, or `postgresql://…` |

@@ -178,6 +178,16 @@ export async function handleRepoCommand(
 		return;
 	}
 
+	if (
+		ctx.env.DISCORD_ALLOWED_USER_ID &&
+		interaction.user.id !== ctx.env.DISCORD_ALLOWED_USER_ID
+	) {
+		await interaction.reply(
+			ephemeralText("You are not allowed to use GitHuBot commands on this instance."),
+		);
+		return;
+	}
+
 	const sub = interaction.options.getSubcommand();
 	switch (sub) {
 		case "add":
@@ -359,6 +369,16 @@ export async function handleRepoSelect(
 	interaction: StringSelectMenuInteraction,
 	ctx: BotContext,
 ): Promise<void> {
+	if (
+		ctx.env.DISCORD_ALLOWED_USER_ID &&
+		interaction.user.id !== ctx.env.DISCORD_ALLOWED_USER_ID
+	) {
+		await interaction.reply(
+			ephemeralText("You are not allowed to use GitHuBot commands on this instance."),
+		);
+		return;
+	}
+
 	const idPart = interaction.customId.replace("repo:events:", "");
 	const repoId = Number(idPart);
 	if (!Number.isFinite(repoId) || !interaction.guildId) {
