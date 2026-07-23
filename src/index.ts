@@ -10,7 +10,10 @@ async function main(): Promise<void> {
 	const logger = createLogger(env);
 	const masterKey = parseMasterKey(env.MASTER_KEY);
 
-	logger.info({ dialect: env.DATABASE_URL.startsWith("postgres") ? "postgres" : "sqlite" }, "Applying migrations");
+	logger.info(
+		{ dialect: env.DATABASE_URL.startsWith("postgres") ? "postgres" : "sqlite" },
+		"Applying migrations",
+	);
 	await migrate(env.DATABASE_URL);
 
 	const db = createDb(env.DATABASE_URL);
@@ -29,11 +32,17 @@ async function main(): Promise<void> {
 		discord: bot,
 	});
 
+	// Bind HTTP first so Railway/Docker healthchecks succeed while Discord connects.
 	await server.listen({ port: env.PORT, host: env.HOST });
 	logger.info({ port: env.PORT, host: env.HOST }, "HTTP server listening");
 
-	await bot.login(env.DISCORD_TOKEN);
-	await registerCommands(bot, env, logger);
+	try {
+		await bot.login(env.DISCORD_TOKEN);
+		await registerCommands(bot, env, logger);
+	} catch (err) {
+		logger.error({ err }, "Discord login/command registration failed");
+		// Keep HTTP up so healthchecks and logs remain available while you fix credentials.
+	}
 
 	const shutdown = async (signal: string) => {
 		logger.info({ signal }, "Shutting down");

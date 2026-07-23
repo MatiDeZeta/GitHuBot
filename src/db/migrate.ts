@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import postgres from "postgres";
 import { isPostgresUrl, sqlitePathFromUrl } from "../config/env.js";
 
@@ -11,8 +11,8 @@ const root = join(here, "../..");
 function applySqliteMigrations(databaseUrl: string): void {
 	const path = sqlitePathFromUrl(databaseUrl);
 	mkdirSync(dirname(path), { recursive: true });
-	const db = new Database(path);
-	db.pragma("foreign_keys = ON");
+	const db = new DatabaseSync(path);
+	db.exec("PRAGMA foreign_keys = ON;");
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS __migrations (
 			id TEXT PRIMARY KEY,
@@ -31,20 +31,17 @@ function applySqliteMigrations(databaseUrl: string): void {
 		.sort();
 
 	const applied = new Set(
-		db
-			.prepare("SELECT id FROM __migrations")
-			.all()
-			.map((row) => (row as { id: string }).id),
+		(db.prepare("SELECT id FROM __migrations").all() as Array<{ id: string }>).map(
+			(row) => row.id,
+		),
 	);
 
+	const insert = db.prepare("INSERT INTO __migrations (id, applied_at) VALUES (?, ?)");
 	for (const file of files) {
 		if (applied.has(file)) continue;
 		const sql = readFileSync(join(migrationsDir, file), "utf8");
 		db.exec(sql);
-		db.prepare("INSERT INTO __migrations (id, applied_at) VALUES (?, ?)").run(
-			file,
-			Date.now(),
-		);
+		insert.run(file, Date.now());
 	}
 	db.close();
 }
