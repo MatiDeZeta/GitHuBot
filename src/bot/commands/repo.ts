@@ -115,6 +115,11 @@ function parseRepoOption(
 	return { value: parsed.data };
 }
 
+/**
+ * Best-effort public-repo existence check on `/repo add` only.
+ * Unauthenticated GitHub REST is 60 req/hour **per originating IP** (e.g. Railway egress),
+ * not per tracked repo. Incoming webhooks are unaffected. Always fail-open on errors/timeouts.
+ */
 async function maybeWarnPrivateRepo(owner: string, repo: string): Promise<string | null> {
 	try {
 		const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {

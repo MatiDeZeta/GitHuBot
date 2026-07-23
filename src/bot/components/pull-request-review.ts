@@ -1,9 +1,9 @@
 import type { PullRequestReviewPayload } from "../../github/payloads.js";
 import { Accents, truncate } from "./design.js";
 import {
-	authorSection,
 	buildMessage,
 	container,
+	eventHeader,
 	linkButton,
 	linkRow,
 	separator,
@@ -27,23 +27,20 @@ export function formatPullRequestReview(
 	const repo = payload.repository.full_name;
 	const author = payload.review.user ?? payload.sender;
 
-	const c = container(Accents.review);
-	c.addSectionComponents(
-		authorSection(
-			[
-				`**${repo}**`,
-				`Review ${stateLabel} · [#${payload.pull_request.number}](${payload.pull_request.html_url})`,
-				`**${payload.pull_request.title}**`,
-			],
-			author?.avatar_url,
-		),
-	);
-
+	const bodyParts: string[] = [
+		`**${payload.pull_request.title}**`,
+		`[#${payload.pull_request.number}](${payload.pull_request.html_url})`,
+	];
 	if (payload.review.body) {
-		c.addSeparatorComponents(separator());
-		c.addTextDisplayComponents(text(`> ${truncate(payload.review.body)}`));
+		bodyParts.push(`> ${truncate(payload.review.body)}`);
 	}
 
+	const c = container(Accents.review);
+	c.addSectionComponents(
+		eventHeader(repo, `Review ${stateLabel}`, author?.avatar_url),
+	);
+	c.addSeparatorComponents(separator());
+	c.addTextDisplayComponents(text(bodyParts.join("\n")));
 	c.addActionRowComponents(linkRow(linkButton("View Review", payload.review.html_url)));
 	return buildMessage([c]);
 }
