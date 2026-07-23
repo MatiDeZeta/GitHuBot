@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { parseEnabledEvents, type EventType } from "../config/events.js";
 import * as schema from "./schema.sqlite.js";
@@ -75,6 +75,14 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 				.where(eq(schema.trackedRepos.guildId, guildId))
 				.all();
 			return rows.map(mapRow);
+		},
+
+		async countTrackedRepos() {
+			const row = db
+				.select({ value: count() })
+				.from(schema.trackedRepos)
+				.get();
+			return row?.value ?? 0;
 		},
 
 		async getRepo(guildId, owner, repo) {

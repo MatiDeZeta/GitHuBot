@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { parseEnabledEvents, type EventType } from "../config/events.js";
 import * as schema from "./schema.pg.js";
@@ -72,6 +72,13 @@ export function createPgRepository(db: PgDb): RepoRepository {
 				.from(schema.trackedRepos)
 				.where(eq(schema.trackedRepos.guildId, guildId));
 			return rows.map(mapRow);
+		},
+
+		async countTrackedRepos() {
+			const [row] = await db
+				.select({ value: count() })
+				.from(schema.trackedRepos);
+			return row?.value ?? 0;
 		},
 
 		async getRepo(guildId, owner, repo) {

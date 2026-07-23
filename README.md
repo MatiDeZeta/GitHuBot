@@ -50,6 +50,7 @@ GitHub’s built-in Discord integration dumps generic embeds. GitHuBot turns the
 5. **Signature verify + delivery dedupe** — `X-Hub-Signature-256` / `X-GitHub-Delivery`
 6. **SQLite by default** — Railway/Docker volume; Postgres via `DATABASE_URL`
 7. **Secret rotation** — `/repo regenerate-secret` with graceful cutover
+8. **Rotating presence** — live tracked-repo / server counts plus branded Watching & Custom lines
 
 ### Architecture
 

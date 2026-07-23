@@ -39,6 +39,8 @@ export interface RepoRepository {
 	addRepo(input: CreateTrackedRepoInput): Promise<TrackedRepo>;
 	removeRepo(guildId: string, owner: string, repo: string): Promise<TrackedRepo | null>;
 	listRepos(guildId: string): Promise<TrackedRepo[]>;
+	/** Global count of tracked repos across all guilds (for bot presence). */
+	countTrackedRepos(): Promise<number>;
 	getRepo(guildId: string, owner: string, repo: string): Promise<TrackedRepo | null>;
 	findByTrackingId(trackingId: string): Promise<TrackedRepo | null>;
 	updateChannel(

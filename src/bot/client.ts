@@ -11,6 +11,7 @@ import type { FullyConfiguredEnv } from "../config/env.js";
 import type { Logger } from "../config/logger.js";
 import type { RepoRepository } from "../db/types.js";
 import { repoCommand, handleRepoCommand, handleRepoSelect } from "./commands/repo.js";
+import { INITIAL_PRESENCE, startPresence } from "./presence.js";
 
 export interface BotContext {
 	env: FullyConfiguredEnv;
@@ -23,6 +24,10 @@ export function createBot(ctx: BotContext): Client {
 	const client = new Client({
 		intents: [GatewayIntentBits.Guilds],
 		partials: [Partials.Channel],
+		presence: {
+			status: INITIAL_PRESENCE.status,
+			activities: [...INITIAL_PRESENCE.activities],
+		},
 	});
 
 	const commands = new Collection<string, typeof repoCommand>();
@@ -30,6 +35,7 @@ export function createBot(ctx: BotContext): Client {
 
 	client.once(Events.ClientReady, (readyClient) => {
 		ctx.logger.info({ user: readyClient.user.tag }, "Discord bot ready");
+		startPresence(readyClient, ctx);
 	});
 
 	client.on(Events.InteractionCreate, async (interaction: Interaction) => {
