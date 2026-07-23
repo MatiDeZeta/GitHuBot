@@ -8,6 +8,7 @@ import {
 	TextDisplayBuilder,
 	type ChatInputCommandInteraction,
 	type Interaction,
+	type InteractionEditReplyOptions,
 } from "discord.js";
 import type { FullyConfiguredEnv } from "../config/env.js";
 import type { Logger } from "../config/logger.js";
@@ -67,7 +68,7 @@ export function createBot(ctx: BotContext): Client {
 						await interaction.editReply({
 							content: null,
 							embeds: [],
-							flags: MessageFlags.IsComponentsV2,
+							flags: MessageFlags.IsComponentsV2 as InteractionEditReplyOptions["flags"],
 							components: v2Error.components,
 						});
 					} else {

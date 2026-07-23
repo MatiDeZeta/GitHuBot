@@ -7,6 +7,7 @@ import {
 	StringSelectMenuBuilder,
 	TextDisplayBuilder,
 	type ChatInputCommandInteraction,
+	type InteractionEditReplyOptions,
 	type StringSelectMenuInteraction,
 } from "discord.js";
 import {
@@ -103,11 +104,12 @@ function ephemeralText(content: string) {
 	};
 }
 
-function ephemeralV2Edit(content: string) {
+/** editReply only allows IsComponentsV2 / SuppressEmbeds — not Ephemeral (already set on defer). */
+function ephemeralV2Edit(content: string): InteractionEditReplyOptions {
 	return {
 		content: null,
 		embeds: [],
-		flags: MessageFlags.IsComponentsV2,
+		flags: MessageFlags.IsComponentsV2 as InteractionEditReplyOptions["flags"],
 		components: [new TextDisplayBuilder().setContent(content)],
 	};
 }
@@ -407,7 +409,7 @@ export async function handleRepoSelect(
 	await interaction.update({
 		content: null,
 		embeds: [],
-		flags: MessageFlags.IsComponentsV2,
+		flags: MessageFlags.IsComponentsV2 as InteractionEditReplyOptions["flags"],
 		components: [
 			new TextDisplayBuilder().setContent(
 				`## Events updated for \`${tracked.owner}/${tracked.repo}\`\nEnabled: ${
