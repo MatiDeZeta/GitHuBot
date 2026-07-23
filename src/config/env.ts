@@ -19,18 +19,21 @@ const masterKeySchema = z
 const emptyToUndefined = (value: unknown) =>
 	typeof value === "string" && value.trim() === "" ? undefined : value;
 
+/** Accept full URLs or bare hosts like `foo.up.railway.app` (assumes https). */
+function normalizePublicWebhookUrl(value: unknown): unknown {
+	const cleared = emptyToUndefined(value);
+	if (typeof cleared !== "string") return cleared;
+	const trimmed = cleared.trim().replace(/\/$/, "");
+	if (/^https?:\/\//i.test(trimmed)) return trimmed;
+	return `https://${trimmed}`;
+}
+
 const envSchema = z.object({
 	DISCORD_TOKEN: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 	DISCORD_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 	DISCORD_GUILD_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 	MASTER_KEY: z.preprocess(emptyToUndefined, masterKeySchema.optional()),
-	PUBLIC_WEBHOOK_URL: z.preprocess(
-		emptyToUndefined,
-		z
-			.url()
-			.transform((url) => url.replace(/\/$/, ""))
-			.optional(),
-	),
+	PUBLIC_WEBHOOK_URL: z.preprocess(normalizePublicWebhookUrl, z.url().optional()),
 	DATABASE_URL: z.string().default("file:./data/githubot.db"),
 	PORT: z.coerce.number().int().positive().default(3000),
 	HOST: z.string().default("0.0.0.0"),
