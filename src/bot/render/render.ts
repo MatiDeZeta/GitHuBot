@@ -106,8 +106,10 @@ function renderDetailed(
 	}
 
 	const images = (tpl.images ?? [])
-		.map((image) => ({ url: safeImageUrl(image.url), alt: image.alt }))
-		.filter((image): image is { url: string; alt?: string } => Boolean(image.url))
+		.flatMap((image) => {
+			const url = safeImageUrl(image.url);
+			return url ? [{ url, ...(image.alt ? { alt: image.alt } : {}) }] : [];
+		})
 		.slice(0, 4);
 	if (images.length > 0) {
 		c.addMediaGalleryComponents(mediaGallery(images));
