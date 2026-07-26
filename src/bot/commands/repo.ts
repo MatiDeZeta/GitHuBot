@@ -1,137 +1,253 @@
 import {
-	ActionRowBuilder,
 	ChannelType,
+	InteractionContextType,
 	MessageFlags,
 	PermissionFlagsBits,
 	SlashCommandBuilder,
-	StringSelectMenuBuilder,
-	TextDisplayBuilder,
 	type ChatInputCommandInteraction,
-	type InteractionEditReplyOptions,
-	type StringSelectMenuInteraction,
+	type SlashCommandSubcommandBuilder,
 } from "discord.js";
-import {
-	DEFAULT_ENABLED_EVENTS,
-	EVENT_TYPES,
-	type EventType,
-	repoSlugSchema,
-} from "../../config/events.js";
+import { DEFAULT_ENABLED_EVENTS, repoSlugSchema } from "../../config/events.js";
 import {
 	decryptSecret,
 	encryptSecret,
 	generateTrackingId,
 	generateWebhookSecret,
 } from "../../crypto/secrets.js";
+import { localizations, t, type AppLocale, type TranslationKey } from "../../i18n/index.js";
+import { THEME_IDS } from "../render/theme.js";
+import { DISPLAY_MODES } from "../render/template.js";
 import type { BotContext } from "../client.js";
+import { categoryView } from "./repo-events.js";
+import {
+	CATEGORY_CHOICES,
+	handleHealth,
+	handleLanguage,
+	handleMentions,
+	handlePause,
+	handleRoute,
+	handleStyle,
+	handleTest,
+	LOCALE_CHOICES,
+	showFiltersModal,
+	summarizeFilters,
+} from "./repo-config.js";
+import {
+	ephemeralText,
+	ephemeralTextEdit,
+	ephemeralV2,
+	guildContext,
+	parseRepoSlug,
+	relative,
+	requireTrackedRepo,
+	slugOf,
+} from "./shared.js";
+
+const TEXT_CHANNEL_TYPES = [
+	ChannelType.GuildText,
+	ChannelType.GuildAnnouncement,
+	ChannelType.PublicThread,
+	ChannelType.PrivateThread,
+	ChannelType.AnnouncementThread,
+	ChannelType.GuildForum,
+	ChannelType.GuildMedia,
+] as const;
+
+/** Every subcommand that targets one repository shares this option. */
+function repoOption(sub: SlashCommandSubcommandBuilder): SlashCommandSubcommandBuilder {
+	return sub.addStringOption((opt) =>
+		opt
+			.setName("repository")
+			.setDescription(t("en", "cmd.repo.option.repository"))
+			.setDescriptionLocalizations(localizations("cmd.repo.option.repository"))
+			.setRequired(true)
+			.setAutocomplete(true),
+	);
+}
+
+function describe(sub: SlashCommandSubcommandBuilder, key: TranslationKey) {
+	return sub.setDescription(t("en", key)).setDescriptionLocalizations(localizations(key));
+}
 
 export const repoCommand = {
 	data: new SlashCommandBuilder()
 		.setName("repo")
-		.setDescription("Manage GitHub repositories tracked by this server")
+		.setDescription(t("en", "cmd.repo.description"))
+		.setDescriptionLocalizations(localizations("cmd.repo.description"))
 		.setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-		.setDMPermission(false)
+		.setContexts(InteractionContextType.Guild)
 		.addSubcommand((sub) =>
-			sub
-				.setName("add")
-				.setDescription("Track a GitHub repository (manual webhook setup)")
+			repoOption(describe(sub.setName("add"), "cmd.repo.add.description")).addChannelOption(
+				(opt) =>
+					opt
+						.setName("channel")
+						.setDescription(t("en", "cmd.repo.add.option.channel"))
+						.addChannelTypes(...TEXT_CHANNEL_TYPES)
+						.setRequired(false),
+			),
+		)
+		.addSubcommand((sub) => repoOption(describe(sub.setName("remove"), "cmd.repo.remove.description")))
+		.addSubcommand((sub) => describe(sub.setName("list"), "cmd.repo.list.description"))
+		.addSubcommand((sub) => repoOption(describe(sub.setName("events"), "cmd.repo.events.description")))
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("channel"), "cmd.repo.channel.description")).addChannelOption(
+				(opt) =>
+					opt
+						.setName("channel")
+						.setDescription(t("en", "cmd.repo.channel.option.channel"))
+						.addChannelTypes(...TEXT_CHANNEL_TYPES)
+						.setRequired(true),
+			),
+		)
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("webhook-info"), "cmd.repo.webhookInfo.description")),
+		)
+		.addSubcommand((sub) =>
+			repoOption(
+				describe(sub.setName("regenerate-secret"), "cmd.repo.regenerateSecret.description"),
+			),
+		)
+		.addSubcommand((sub) => repoOption(describe(sub.setName("pause"), "cmd.repo.pause.description")))
+		.addSubcommand((sub) => repoOption(describe(sub.setName("resume"), "cmd.repo.resume.description")))
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("test"), "cmd.repo.test.description")).addStringOption((opt) =>
+				opt
+					.setName("event")
+					.setDescription(t("en", "cmd.repo.test.option.event"))
+					.setRequired(false)
+					.setAutocomplete(true),
+			),
+		)
+		.addSubcommand((sub) => repoOption(describe(sub.setName("filters"), "cmd.repo.filters.description")))
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("route"), "cmd.repo.route.description"))
 				.addStringOption((opt) =>
-					opt.setName("repository").setDescription("owner/repo").setRequired(true),
+					opt
+						.setName("category")
+						.setDescription(t("en", "cmd.repo.route.option.category"))
+						.setRequired(true)
+						.addChoices(...CATEGORY_CHOICES),
 				)
 				.addChannelOption((opt) =>
 					opt
 						.setName("channel")
-						.setDescription("Channel for changelog messages")
-						.addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+						.setDescription(t("en", "cmd.repo.route.option.channel"))
+						.addChannelTypes(...TEXT_CHANNEL_TYPES)
 						.setRequired(false),
 				),
 		)
 		.addSubcommand((sub) =>
-			sub
-				.setName("remove")
-				.setDescription("Stop tracking a repository")
+			repoOption(describe(sub.setName("mentions"), "cmd.repo.mentions.description"))
 				.addStringOption((opt) =>
-					opt.setName("repository").setDescription("owner/repo").setRequired(true),
-				),
-		)
-		.addSubcommand((sub) =>
-			sub.setName("list").setDescription("List tracked repositories for this server"),
-		)
-		.addSubcommand((sub) =>
-			sub
-				.setName("events")
-				.setDescription("Toggle which GitHub events are posted")
-				.addStringOption((opt) =>
-					opt.setName("repository").setDescription("owner/repo").setRequired(true),
-				),
-		)
-		.addSubcommand((sub) =>
-			sub
-				.setName("channel")
-				.setDescription("Change the output channel for a repository")
-				.addStringOption((opt) =>
-					opt.setName("repository").setDescription("owner/repo").setRequired(true),
-				)
-				.addChannelOption((opt) =>
 					opt
-						.setName("channel")
-						.setDescription("New target channel")
-						.addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-						.setRequired(true),
+						.setName("category")
+						.setDescription(t("en", "cmd.repo.mentions.option.category"))
+						.setRequired(true)
+						.addChoices(...CATEGORY_CHOICES),
+				)
+				.addRoleOption((opt) =>
+					opt
+						.setName("role")
+						.setDescription(t("en", "cmd.repo.mentions.option.role"))
+						.setRequired(false),
 				),
 		)
 		.addSubcommand((sub) =>
-			sub
-				.setName("webhook-info")
-				.setDescription("Show webhook Payload URL and secret (ephemeral)")
+			repoOption(describe(sub.setName("style"), "cmd.repo.style.description"))
 				.addStringOption((opt) =>
-					opt.setName("repository").setDescription("owner/repo").setRequired(true),
+					opt
+						.setName("theme")
+						.setDescription(t("en", "cmd.repo.style.option.theme"))
+						.setRequired(false)
+						.addChoices(...THEME_IDS.map((theme) => ({ name: theme, value: theme }))),
+				)
+				.addStringOption((opt) =>
+					opt
+						.setName("mode")
+						.setDescription(t("en", "cmd.repo.style.option.mode"))
+						.setRequired(false)
+						.addChoices(...DISPLAY_MODES.map((mode) => ({ name: mode, value: mode }))),
 				),
 		)
+		.addSubcommand((sub) => repoOption(describe(sub.setName("health"), "cmd.repo.health.description")))
 		.addSubcommand((sub) =>
-			sub
-				.setName("regenerate-secret")
-				.setDescription("Issue a new webhook secret (update it on GitHub)")
-				.addStringOption((opt) =>
-					opt.setName("repository").setDescription("owner/repo").setRequired(true),
-				),
+			describe(sub.setName("language"), "cmd.repo.language.description").addStringOption((opt) =>
+				opt
+					.setName("locale")
+					.setDescription(t("en", "cmd.repo.language.option.locale"))
+					.setRequired(true)
+					.addChoices(...LOCALE_CHOICES),
+			),
 		),
 };
 
-function ephemeralText(content: string) {
-	return {
-		flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-		components: [new TextDisplayBuilder().setContent(content)],
-	};
-}
-
-/** editReply only allows IsComponentsV2 / SuppressEmbeds — not Ephemeral (already set on defer). */
-function ephemeralV2Edit(content: string): InteractionEditReplyOptions {
-	return {
-		content: null,
-		embeds: [],
-		flags: MessageFlags.IsComponentsV2 as InteractionEditReplyOptions["flags"],
-		components: [new TextDisplayBuilder().setContent(content)],
-	};
-}
-
-function parseRepoOption(
+export async function handleRepoCommand(
 	interaction: ChatInputCommandInteraction,
-): { error: string } | { value: { owner: string; repo: string; slug: string } } {
-	const raw = interaction.options.getString("repository", true);
-	const parsed = repoSlugSchema.safeParse(raw);
-	if (!parsed.success) {
-		const message = parsed.error.issues[0]?.message;
-		return { error: typeof message === "string" ? message : "Invalid repository format" };
+	ctx: BotContext,
+): Promise<void> {
+	const { locale } = await guildContext(ctx, interaction);
+
+	if (!interaction.guildId) {
+		await interaction.reply(ephemeralText(t(locale, "common.error.guildOnly")));
+		return;
 	}
-	return { value: parsed.data };
+
+	if (
+		ctx.env.DISCORD_ALLOWED_USER_ID &&
+		interaction.user.id !== ctx.env.DISCORD_ALLOWED_USER_ID
+	) {
+		await interaction.reply(ephemeralText(t(locale, "common.error.notAllowed")));
+		return;
+	}
+
+	switch (interaction.options.getSubcommand()) {
+		case "add":
+			return handleAdd(interaction, ctx, locale);
+		case "remove":
+			return handleRemove(interaction, ctx, locale);
+		case "list":
+			return handleList(interaction, ctx, locale);
+		case "events":
+			return handleEvents(interaction, ctx, locale);
+		case "channel":
+			return handleChannel(interaction, ctx, locale);
+		case "webhook-info":
+			return handleWebhookInfo(interaction, ctx, locale);
+		case "regenerate-secret":
+			return handleRegenerateSecret(interaction, ctx, locale);
+		case "pause":
+			return handlePause(interaction, ctx, locale, true);
+		case "resume":
+			return handlePause(interaction, ctx, locale, false);
+		case "test":
+			return handleTest(interaction, ctx, locale);
+		case "filters":
+			return showFiltersModal(interaction, ctx, locale);
+		case "route":
+			return handleRoute(interaction, ctx, locale);
+		case "mentions":
+			return handleMentions(interaction, ctx, locale);
+		case "style":
+			return handleStyle(interaction, ctx, locale);
+		case "health":
+			return handleHealth(interaction, ctx, locale);
+		case "language":
+			return handleLanguage(interaction, ctx, locale);
+		default:
+			await interaction.reply(ephemeralText(t(locale, "common.error.unknownSubcommand")));
+	}
 }
 
 /**
  * Best-effort public-repo existence check on `/repo add` only.
- * Unauthenticated GitHub REST is 60 req/hour **per originating IP** (e.g. Railway egress),
- * not per tracked repo. Incoming webhooks are unaffected. Always fail-open on errors/timeouts.
+ * Unauthenticated GitHub REST is 60 req/hour **per originating IP**, not per
+ * tracked repo. Incoming webhooks are unaffected. Always fail open.
  */
-async function maybeWarnPrivateRepo(owner: string, repo: string): Promise<string | null> {
+async function maybeWarnPrivateRepo(
+	owner: string,
+	repo: string,
+	locale: AppLocale,
+): Promise<string | null> {
 	try {
 		const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
 			headers: {
@@ -141,7 +257,7 @@ async function maybeWarnPrivateRepo(owner: string, repo: string): Promise<string
 			signal: AbortSignal.timeout(4000),
 		});
 		if (res.status === 404) {
-			return `_Note: could not find a **public** repo \`${owner}/${repo}\`. If it is private, that is fine — continue with webhook setup._`;
+			return t(locale, "repo.add.privateWarning", { repo: `${owner}/${repo}` });
 		}
 		return null;
 	} catch {
@@ -153,100 +269,27 @@ function webhookUrl(publicBase: string, trackingId: string): string {
 	return `${publicBase}/webhooks/github/${trackingId}`;
 }
 
-function setupInstructions(opts: {
-	owner: string;
-	repo: string;
-	payloadUrl: string;
-	secret: string;
-	extra?: string | null;
-}): string {
-	const lines = [
-		`## Track \`${opts.owner}/${opts.repo}\``,
-		"",
-		"GitHuBot never needs a GitHub token. Create the webhook yourself:",
-		"",
-		`1. Open https://github.com/${opts.owner}/${opts.repo}/settings/hooks/new`,
-		`2. **Payload URL**: \`${opts.payloadUrl}\``,
-		"3. **Content type**: `application/json`",
-		`4. **Secret**: \`${opts.secret}\``,
-		'5. Choose **Send me everything** (or pick events — the bot filters server-side)',
-		"6. Save the webhook",
-		"",
-		"_This message is ephemeral. Store the secret securely — you can re-display it with `/repo webhook-info`._",
-	];
-	if (opts.extra) {
-		lines.splice(2, 0, opts.extra, "");
-	}
-	return lines.join("\n");
-}
-
-export async function handleRepoCommand(
+async function handleAdd(
 	interaction: ChatInputCommandInteraction,
 	ctx: BotContext,
-): Promise<void> {
-	if (!interaction.guildId) {
-		await interaction.reply(ephemeralText("This command can only be used in a server."));
-		return;
-	}
-
-	if (
-		ctx.env.DISCORD_ALLOWED_USER_ID &&
-		interaction.user.id !== ctx.env.DISCORD_ALLOWED_USER_ID
-	) {
-		await interaction.reply(
-			ephemeralText("You are not allowed to use GitHuBot commands on this instance."),
-		);
-		return;
-	}
-
-	const sub = interaction.options.getSubcommand();
-	switch (sub) {
-		case "add":
-			await handleAdd(interaction, ctx);
-			break;
-		case "remove":
-			await handleRemove(interaction, ctx);
-			break;
-		case "list":
-			await handleList(interaction, ctx);
-			break;
-		case "events":
-			await handleEvents(interaction, ctx);
-			break;
-		case "channel":
-			await handleChannel(interaction, ctx);
-			break;
-		case "webhook-info":
-			await handleWebhookInfo(interaction, ctx);
-			break;
-		case "regenerate-secret":
-			await handleRegenerateSecret(interaction, ctx);
-			break;
-		default:
-			await interaction.reply(ephemeralText("Unknown subcommand."));
-	}
-}
-
-async function handleAdd(interaction: ChatInputCommandInteraction, ctx: BotContext) {
-	const parsed = parseRepoOption(interaction);
+	locale: AppLocale,
+) {
+	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
 		return;
 	}
-	const { owner, repo } = parsed.value;
+	const { owner, repo, slug } = parsed.value;
 	const guildId = interaction.guildId!;
-	const channel =
-		interaction.options.getChannel("channel") ?? interaction.channel;
+	const channel = interaction.options.getChannel("channel") ?? interaction.channel;
 	if (!channel || !("id" in channel)) {
-		await interaction.reply(ephemeralText("Could not resolve a target channel."));
+		await interaction.reply(ephemeralText(t(locale, "repo.add.noChannel")));
 		return;
 	}
 
 	const existing = await ctx.repository.getRepo(guildId, owner, repo);
 	if (existing) {
-		await interaction.reply(
-			ephemeralText(`\`${owner}/${repo}\` is already tracked. Use \`/repo webhook-info\` or \`/repo remove\` first.`),
-		);
+		await interaction.reply(ephemeralText(t(locale, "repo.add.alreadyTracked", { repo: slug })));
 		return;
 	}
 
@@ -254,7 +297,7 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: BotConte
 		flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
 	});
 
-	const warning = await maybeWarnPrivateRepo(owner, repo);
+	const warning = await maybeWarnPrivateRepo(owner, repo, locale);
 	const trackingId = generateTrackingId();
 	const secret = generateWebhookSecret();
 	const encryptedSecret = encryptSecret(secret, ctx.masterKey);
@@ -271,162 +314,131 @@ async function handleAdd(interaction: ChatInputCommandInteraction, ctx: BotConte
 		});
 	} catch (err) {
 		ctx.logger.error({ err }, "Failed to add repo");
-		await interaction.editReply(
-			ephemeralV2Edit("Failed to save the repository. It may already be tracked."),
-		);
+		await interaction.editReply(ephemeralTextEdit(t(locale, "repo.add.saveFailed")));
 		return;
 	}
 
 	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, trackingId);
-	await interaction.editReply(
-		ephemeralV2Edit(
-			setupInstructions({ owner, repo, payloadUrl, secret, extra: warning }),
-		),
-	);
+	const lines = [
+		t(locale, "repo.add.heading", { repo: slug }),
+		"",
+		...(warning ? [warning, ""] : []),
+		t(locale, "repo.add.intro"),
+		"",
+		t(locale, "repo.add.step1", { url: `https://github.com/${slug}/settings/hooks/new` }),
+		t(locale, "repo.add.step2", { url: payloadUrl }),
+		t(locale, "repo.add.step3"),
+		t(locale, "repo.add.step4", { secret }),
+		t(locale, "repo.add.step5"),
+		t(locale, "repo.add.step6"),
+		"",
+		t(locale, "repo.add.next", { repo: slug }),
+		"",
+		t(locale, "repo.add.footer"),
+	];
+
+	await interaction.editReply(ephemeralTextEdit(lines.join("\n")));
 }
 
-async function handleRemove(interaction: ChatInputCommandInteraction, ctx: BotContext) {
-	const parsed = parseRepoOption(interaction);
+async function handleRemove(
+	interaction: ChatInputCommandInteraction,
+	ctx: BotContext,
+	locale: AppLocale,
+) {
+	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
 		return;
 	}
-	const { owner, repo } = parsed.value;
+	const { owner, repo, slug } = parsed.value;
 	const removed = await ctx.repository.removeRepo(interaction.guildId!, owner, repo);
 	if (!removed) {
-		await interaction.reply(ephemeralText(`\`${owner}/${repo}\` is not tracked on this server.`));
+		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;
 	}
+
 	await interaction.reply(
 		ephemeralText(
 			[
-				`Removed \`${owner}/${repo}\` from this server.`,
+				t(locale, "repo.remove.done", { repo: slug }),
 				"",
-				"Also delete the webhook manually from GitHub:",
-				`https://github.com/${owner}/${repo}/settings/hooks`,
+				t(locale, "repo.remove.deleteHook"),
+				`https://github.com/${slug}/settings/hooks`,
 				"",
-				"_GitHuBot cannot delete GitHub webhooks — it holds no GitHub credentials._",
+				t(locale, "repo.remove.noCredentials"),
 			].join("\n"),
 		),
 	);
 }
 
-async function handleList(interaction: ChatInputCommandInteraction, ctx: BotContext) {
+async function handleList(
+	interaction: ChatInputCommandInteraction,
+	ctx: BotContext,
+	locale: AppLocale,
+) {
 	const repos = await ctx.repository.listRepos(interaction.guildId!);
 	if (repos.length === 0) {
-		await interaction.reply(
-			ephemeralText("No repositories tracked yet. Use `/repo add owner/repo`."),
-		);
+		await interaction.reply(ephemeralText(t(locale, "repo.list.empty")));
 		return;
 	}
 
-	const lines = repos.map((r) => {
-		const events = r.enabledEvents.join(", ");
-		return `• **${r.owner}/${r.repo}** → <#${r.channelId}>\n  Events: \`${events}\``;
+	const entries = repos.map((tracked) => {
+		const details = [
+			t(locale, "repo.list.events", { count: tracked.enabledEvents.length }),
+			...(tracked.paused ? [t(locale, "repo.list.paused")] : []),
+			...(Object.keys(tracked.eventRoutes).length > 0
+				? [t(locale, "repo.list.routes", { count: Object.keys(tracked.eventRoutes).length })]
+				: []),
+			...(tracked.lastDeliveryAt
+				? [
+						t(locale, "repo.list.lastDelivery", {
+							when: relative(tracked.lastDeliveryAt) ?? t(locale, "common.never"),
+						}),
+					]
+				: []),
+		];
+		const filters = summarizeFilters(tracked.filters, locale);
+		const filterLine =
+			tracked.filters.branchInclude.length +
+				tracked.filters.branchExclude.length +
+				tracked.filters.labels.length +
+				tracked.filters.ignoredActors.length >
+			0
+				? `\n${filters.replace(/\n/g, " · ")}`
+				: "";
+
+		return `${t(locale, "repo.list.entry", {
+			repo: slugOf(tracked),
+			channel: tracked.channelId,
+		})}\n-# ${details.join(" · ")}${filterLine}`;
 	});
 
 	await interaction.reply(
-		ephemeralText(`## Tracked repositories\n\n${lines.join("\n\n")}`),
+		ephemeralText(`${t(locale, "repo.list.heading")}\n\n${entries.join("\n\n")}`),
 	);
 }
 
-async function handleEvents(interaction: ChatInputCommandInteraction, ctx: BotContext) {
-	const parsed = parseRepoOption(interaction);
-	if ("error" in parsed) {
-		await interaction.reply(ephemeralText(parsed.error));
-		return;
-	}
-	const { owner, repo } = parsed.value;
-	const tracked = await ctx.repository.getRepo(interaction.guildId!, owner, repo);
-	if (!tracked) {
-		await interaction.reply(ephemeralText(`\`${owner}/${repo}\` is not tracked.`));
-		return;
-	}
-
-	const select = new StringSelectMenuBuilder()
-		.setCustomId(`repo:events:${tracked.id}`)
-		.setPlaceholder("Toggle enabled events")
-		.setMinValues(0)
-		.setMaxValues(EVENT_TYPES.length)
-		.addOptions(
-			EVENT_TYPES.map((event) => ({
-				label: event,
-				value: event,
-				default: tracked.enabledEvents.includes(event),
-				description: DEFAULT_ENABLED_EVENTS.includes(event)
-					? "On by default"
-					: "Off by default",
-			})),
-		);
-
-	await interaction.reply({
-		flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-		components: [
-			new TextDisplayBuilder().setContent(
-				`## Events for \`${owner}/${repo}\`\nSelect which events should post to <#${tracked.channelId}>.`,
-			),
-			new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
-		],
-	});
-}
-
-export async function handleRepoSelect(
-	interaction: StringSelectMenuInteraction,
+async function handleEvents(
+	interaction: ChatInputCommandInteraction,
 	ctx: BotContext,
-): Promise<void> {
-	if (
-		ctx.env.DISCORD_ALLOWED_USER_ID &&
-		interaction.user.id !== ctx.env.DISCORD_ALLOWED_USER_ID
-	) {
-		await interaction.reply(
-			ephemeralText("You are not allowed to use GitHuBot commands on this instance."),
-		);
-		return;
-	}
-
-	const idPart = interaction.customId.replace("repo:events:", "");
-	const repoId = Number(idPart);
-	if (!Number.isFinite(repoId) || !interaction.guildId) {
-		await interaction.reply(ephemeralText("Invalid selection."));
-		return;
-	}
-
-	const repos = await ctx.repository.listRepos(interaction.guildId);
-	const tracked = repos.find((r) => r.id === repoId);
-	if (!tracked) {
-		await interaction.reply(ephemeralText("Repository not found."));
-		return;
-	}
-
-	const enabled = interaction.values as EventType[];
-	await ctx.repository.updateEvents(
-		tracked.guildId,
-		tracked.owner,
-		tracked.repo,
-		enabled,
-	);
-
-	await interaction.update({
-		content: null,
-		embeds: [],
-		flags: MessageFlags.IsComponentsV2 as InteractionEditReplyOptions["flags"],
-		components: [
-			new TextDisplayBuilder().setContent(
-				`## Events updated for \`${tracked.owner}/${tracked.repo}\`\nEnabled: ${
-					enabled.length ? enabled.map((e) => `\`${e}\``).join(", ") : "_none_"
-				}`,
-			),
-		],
-	});
+	locale: AppLocale,
+) {
+	const tracked = await requireTrackedRepo(ctx, interaction, locale);
+	if (!tracked) return;
+	await interaction.reply(ephemeralV2(...categoryView(tracked, locale)));
 }
 
-async function handleChannel(interaction: ChatInputCommandInteraction, ctx: BotContext) {
-	const parsed = parseRepoOption(interaction);
+async function handleChannel(
+	interaction: ChatInputCommandInteraction,
+	ctx: BotContext,
+	locale: AppLocale,
+) {
+	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
 		return;
 	}
-	const { owner, repo } = parsed.value;
+	const { owner, repo, slug } = parsed.value;
 	const channel = interaction.options.getChannel("channel", true);
 	const updated = await ctx.repository.updateChannel(
 		interaction.guildId!,
@@ -435,39 +447,38 @@ async function handleChannel(interaction: ChatInputCommandInteraction, ctx: BotC
 		channel.id,
 	);
 	if (!updated) {
-		await interaction.reply(ephemeralText(`\`${owner}/${repo}\` is not tracked.`));
+		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;
 	}
 	await interaction.reply(
-		ephemeralText(`\`${owner}/${repo}\` will now post to <#${channel.id}>.`),
+		ephemeralText(t(locale, "repo.channel.done", { repo: slug, channel: channel.id })),
 	);
 }
 
-async function handleWebhookInfo(interaction: ChatInputCommandInteraction, ctx: BotContext) {
-	const parsed = parseRepoOption(interaction);
-	if ("error" in parsed) {
-		await interaction.reply(ephemeralText(parsed.error));
-		return;
-	}
-	const { owner, repo } = parsed.value;
-	const tracked = await ctx.repository.getRepo(interaction.guildId!, owner, repo);
-	if (!tracked) {
-		await interaction.reply(ephemeralText(`\`${owner}/${repo}\` is not tracked.`));
-		return;
-	}
+async function handleWebhookInfo(
+	interaction: ChatInputCommandInteraction,
+	ctx: BotContext,
+	locale: AppLocale,
+) {
+	const tracked = await requireTrackedRepo(ctx, interaction, locale);
+	if (!tracked) return;
 
 	const secret = decryptSecret(tracked.encryptedSecret, ctx.masterKey);
 	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);
+	const slug = slugOf(tracked);
+
 	await interaction.reply(
 		ephemeralText(
 			[
-				`## Webhook info · \`${owner}/${repo}\``,
+				t(locale, "repo.webhookInfo.heading", { repo: slug }),
 				"",
-				`**Payload URL**: \`${payloadUrl}\``,
-				`**Secret**: \`${secret}\``,
-				"**Content type**: `application/json`",
+				t(locale, "repo.webhookInfo.payloadUrl", { url: payloadUrl }),
+				t(locale, "repo.webhookInfo.secret", { secret }),
+				t(locale, "repo.webhookInfo.contentType"),
 				"",
-				`Configure at: https://github.com/${owner}/${repo}/settings/hooks`,
+				t(locale, "repo.webhookInfo.configureAt", {
+					url: `https://github.com/${slug}/settings/hooks`,
+				}),
 			].join("\n"),
 		),
 	);
@@ -476,43 +487,39 @@ async function handleWebhookInfo(interaction: ChatInputCommandInteraction, ctx: 
 async function handleRegenerateSecret(
 	interaction: ChatInputCommandInteraction,
 	ctx: BotContext,
+	locale: AppLocale,
 ) {
-	const parsed = parseRepoOption(interaction);
-	if ("error" in parsed) {
-		await interaction.reply(ephemeralText(parsed.error));
-		return;
-	}
-	const { owner, repo } = parsed.value;
-	const tracked = await ctx.repository.getRepo(interaction.guildId!, owner, repo);
-	if (!tracked) {
-		await interaction.reply(ephemeralText(`\`${owner}/${repo}\` is not tracked.`));
-		return;
-	}
+	const tracked = await requireTrackedRepo(ctx, interaction, locale);
+	if (!tracked) return;
 
 	const secret = generateWebhookSecret();
 	const encryptedSecret = encryptSecret(secret, ctx.masterKey);
 	await ctx.repository.rotateSecret({
-		guildId: interaction.guildId!,
-		owner,
-		repo,
+		guildId: tracked.guildId,
+		owner: tracked.owner,
+		repo: tracked.repo,
 		encryptedSecret,
 		encryptedPreviousSecret: tracked.encryptedSecret,
 	});
+
 	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);
+	const slug = slugOf(tracked);
 
 	await interaction.reply(
 		ephemeralText(
 			[
-				`## New secret for \`${owner}/${repo}\``,
+				t(locale, "repo.regenerate.heading", { repo: slug }),
 				"",
-				"Update the **Secret** field on your GitHub webhook:",
-				`https://github.com/${owner}/${repo}/settings/hooks`,
+				t(locale, "repo.regenerate.instruction"),
+				`https://github.com/${slug}/settings/hooks`,
 				"",
-				`**Payload URL**: \`${payloadUrl}\``,
-				`**New secret**: \`${secret}\``,
+				t(locale, "repo.webhookInfo.payloadUrl", { url: payloadUrl }),
+				t(locale, "repo.regenerate.newSecret", { secret }),
 				"",
-				"_The previous secret remains accepted until GitHub starts signing with the new one, so deliveries are not dropped mid-cutover._",
+				t(locale, "repo.regenerate.gracePeriod"),
 			].join("\n"),
 		),
 	);
 }
+
+export { repoSlugSchema };

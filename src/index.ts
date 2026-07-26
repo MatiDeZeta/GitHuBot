@@ -3,17 +3,32 @@ import {
 	isFullyConfigured,
 	loadEnv,
 	missingConfigKeys,
+	type Env,
 	type FullyConfiguredEnv,
 } from "./config/env.js";
 import { createLogger, type Logger } from "./config/logger.js";
+import { applyIconOverrides } from "./bot/render/icons.js";
 import { parseMasterKey } from "./crypto/secrets.js";
 import { createDb, migrate, type DbHandle } from "./db/index.js";
-import { createBot, registerCommands } from "./bot/client.js";
+import { createBot, registerCommands, type BotContext } from "./bot/client.js";
 import { createServer, type ServerContext } from "./server/app.js";
+
+function renderDefaultsFrom(env: Env): BotContext["renderDefaults"] {
+	return {
+		locale: env.DEFAULT_LOCALE,
+		theme: env.DEFAULT_THEME,
+		mode: env.DEFAULT_DISPLAY_MODE,
+	};
+}
 
 async function main(): Promise<void> {
 	const env = loadEnv();
 	const logger = createLogger(env);
+
+	const unknownIcons = applyIconOverrides(env.EMOJI_OVERRIDES);
+	if (unknownIcons.length > 0) {
+		logger.warn({ keys: unknownIcons }, "Ignoring unknown EMOJI_OVERRIDES keys");
+	}
 
 	const ctx: ServerContext = {
 		env,
@@ -22,6 +37,7 @@ async function main(): Promise<void> {
 		masterKey: null,
 		discord: null,
 		ready: false,
+		renderDefaults: renderDefaultsFrom(env),
 	};
 
 	const server = await createServer(ctx);
@@ -79,6 +95,7 @@ async function startFullStack(
 		logger,
 		repository: db.repository,
 		masterKey,
+		renderDefaults: renderDefaultsFrom(env),
 	});
 
 	try {

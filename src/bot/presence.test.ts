@@ -2,9 +2,21 @@ import { ActivityType } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
 	INITIAL_PRESENCE,
+	applyPlaceholders,
 	buildPresenceActivities,
+	defaultRotation,
 	pluralize,
+	presencePlaceholders,
+	type PresenceStats,
 } from "./presence.js";
+
+const stats: PresenceStats = {
+	trackedRepos: 1,
+	servers: 2,
+	eventsToday: 7,
+	uptimeMs: 3_600_000,
+	pingMs: 42,
+};
 
 describe("pluralize", () => {
 	it("uses singular for one", () => {
@@ -18,11 +30,26 @@ describe("pluralize", () => {
 	});
 });
 
-describe("buildPresenceActivities", () => {
-	it("builds Watching/Listening/Custom lineup with live counts", () => {
-		const activities = buildPresenceActivities({ trackedRepos: 1, servers: 2 });
+describe("applyPlaceholders", () => {
+	it("substitutes known placeholders and leaves unknown ones intact", () => {
+		const values = presencePlaceholders(stats);
+		expect(applyPlaceholders("{repos} repos on {servers}", values)).toBe("1 repos on 2");
+		expect(applyPlaceholders("{events} events", values)).toBe("7 events");
+		expect(applyPlaceholders("{nope}", values)).toBe("{nope}");
+	});
 
-		expect(activities).toHaveLength(5);
+	it("formats uptime and ping", () => {
+		const values = presencePlaceholders(stats);
+		expect(values.uptime).toBe("1h 0m");
+		expect(values.ping).toBe("42");
+	});
+});
+
+describe("buildPresenceActivities", () => {
+	it("builds the default lineup with live counts", () => {
+		const activities = buildPresenceActivities(stats);
+
+		expect(activities).toHaveLength(defaultRotation(stats).length);
 		expect(activities[0]).toEqual({
 			name: "1 tracked repo",
 			type: ActivityType.Watching,
@@ -32,23 +59,47 @@ describe("buildPresenceActivities", () => {
 			type: ActivityType.Watching,
 		});
 		expect(activities[2]).toMatchObject({
-			name: "GitHub → Discord",
-			type: ActivityType.Watching,
-		});
-		expect(activities[3]).toMatchObject({
-			name: "/repo",
-			type: ActivityType.Listening,
-		});
-		expect(activities[4]).toEqual({
-			name: "Custom Status",
 			type: ActivityType.Custom,
-			state: "Beautiful changelogs · no GitHub token",
+			state: "⚡ 7 events today",
 		});
+		expect(activities.some((activity) => activity.name === "/repo")).toBe(true);
 	});
 
-	it("pluralizes tracked repos when count is not one", () => {
-		const [repos] = buildPresenceActivities({ trackedRepos: 4, servers: 1 });
-		expect(repos?.name).toBe("4 tracked repos");
+	it("honors a custom rotation and its placeholders", () => {
+		const activities = buildPresenceActivities(stats, {
+			rotation: [
+				{ type: "listening", name: "{repos} repos" },
+				{ type: "custom", name: "Custom Status", state: "up {uptime}" },
+			],
+		});
+
+		expect(activities).toEqual([
+			{ name: "1 repos", type: ActivityType.Listening },
+			{ name: "Custom Status", type: ActivityType.Custom, state: "up 1h 0m" },
+		]);
+	});
+
+	it("appends a Streaming activity only when a stream URL is configured", () => {
+		const without = buildPresenceActivities(stats);
+		expect(without.some((activity) => activity.type === ActivityType.Streaming)).toBe(false);
+
+		const withStream = buildPresenceActivities(stats, {
+			streamUrl: "https://twitch.tv/example",
+		});
+		const streaming = withStream.find((activity) => activity.type === ActivityType.Streaming);
+		expect(streaming?.url).toBe("https://twitch.tv/example");
+	});
+
+	it("attaches the stream URL to custom rotations that ask for Streaming", () => {
+		const [activity] = buildPresenceActivities(stats, {
+			rotation: [{ type: "streaming", name: "live" }],
+			streamUrl: "https://youtube.com/@example",
+		});
+		expect(activity).toEqual({
+			name: "live",
+			type: ActivityType.Streaming,
+			url: "https://youtube.com/@example",
+		});
 	});
 });
 

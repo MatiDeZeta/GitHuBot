@@ -1,6 +1,5 @@
 import {
 	Client,
-	Collection,
 	Events,
 	GatewayIntentBits,
 	MessageFlags,
@@ -9,11 +8,31 @@ import {
 	type ChatInputCommandInteraction,
 	type Interaction,
 	type InteractionEditReplyOptions,
+	type RESTPostAPIApplicationCommandsJSONBody,
 } from "discord.js";
 import type { FullyConfiguredEnv } from "../config/env.js";
 import type { Logger } from "../config/logger.js";
 import type { RepoRepository } from "../db/types.js";
-import { repoCommand, handleRepoCommand, handleRepoSelect } from "./commands/repo.js";
+import type { DispatchContext } from "../delivery/dispatch.js";
+import { t } from "../i18n/index.js";
+import {
+	aboutCommand,
+	handleAbout,
+	handleHelp,
+	handlePing,
+	handleStats,
+	helpCommand,
+	pingCommand,
+	statsCommand,
+} from "./commands/misc.js";
+import { handleRepoCommand, repoCommand } from "./commands/repo.js";
+import { handleEventsComponent } from "./commands/repo-events.js";
+import {
+	eventAutocompleteChoices,
+	FILTERS_MODAL_ID,
+	handleFiltersModal,
+} from "./commands/repo-config.js";
+import { guildContext, respondRepoAutocomplete } from "./commands/shared.js";
 import { INITIAL_PRESENCE, startPresence } from "./presence.js";
 
 export interface BotContext {
@@ -21,7 +40,17 @@ export interface BotContext {
 	logger: Logger;
 	repository: RepoRepository;
 	masterKey: Buffer;
+	/** Instance-wide render defaults, shared with the webhook pipeline. */
+	renderDefaults: DispatchContext["defaults"];
 }
+
+const COMMANDS: RESTPostAPIApplicationCommandsJSONBody[] = [
+	repoCommand.data.toJSON(),
+	helpCommand.data.toJSON(),
+	statsCommand.data.toJSON(),
+	aboutCommand.data.toJSON(),
+	pingCommand.data.toJSON(),
+];
 
 export function createBot(ctx: BotContext): Client {
 	const client = new Client({
@@ -33,62 +62,114 @@ export function createBot(ctx: BotContext): Client {
 		},
 	});
 
-	const commands = new Collection<string, typeof repoCommand>();
-	commands.set(repoCommand.data.name, repoCommand);
-
 	client.once(Events.ClientReady, (readyClient) => {
 		ctx.logger.info({ user: readyClient.user.tag }, "Discord bot ready");
-		startPresence(readyClient, ctx);
+		startPresence(readyClient, {
+			repository: ctx.repository,
+			logger: ctx.logger,
+			presence: {
+				rotation: ctx.env.PRESENCE_ROTATION,
+				streamUrl: ctx.env.PRESENCE_STREAM_URL,
+			},
+		});
 	});
 
 	client.on(Events.InteractionCreate, async (interaction: Interaction) => {
 		try {
-			if (interaction.isChatInputCommand()) {
-				await onChatInput(interaction, ctx);
-				return;
-			}
-			if (interaction.isStringSelectMenu() && interaction.customId.startsWith("repo:events:")) {
-				await handleRepoSelect(interaction, ctx);
-			}
+			await route(interaction, ctx);
 		} catch (err) {
 			ctx.logger.error({ err }, "Interaction handler failed");
-			const v2Error = {
-				flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-				components: [
-					new TextDisplayBuilder().setContent(
-						"Something went wrong handling that interaction.",
-					),
-				],
-			};
-			if (!interaction.isRepliable()) return;
-			try {
-				if (interaction.deferred || interaction.replied) {
-					// Deferred V2 replies cannot use legacy `content` follow-ups.
-					if (interaction.deferred && !interaction.replied) {
-						await interaction.editReply({
-							content: null,
-							embeds: [],
-							flags: MessageFlags.IsComponentsV2 as InteractionEditReplyOptions["flags"],
-							components: v2Error.components,
-						});
-					} else {
-						await interaction.followUp(v2Error);
-					}
-				} else {
-					await interaction.reply(v2Error);
-				}
-			} catch (replyErr) {
-				ctx.logger.error({ err: replyErr }, "Failed to send interaction error reply");
-			}
+			await replyWithError(interaction, ctx);
 		}
 	});
 
 	return client;
 }
 
+async function route(interaction: Interaction, ctx: BotContext): Promise<void> {
+	if (interaction.isAutocomplete()) {
+		const focused = interaction.options.getFocused(true);
+		if (focused.name === "event") {
+			await interaction.respond(eventAutocompleteChoices(focused.value));
+			return;
+		}
+		await respondRepoAutocomplete(ctx, interaction);
+		return;
+	}
+
+	if (interaction.isChatInputCommand()) {
+		await onChatInput(interaction, ctx);
+		return;
+	}
+
+	if (interaction.isModalSubmit()) {
+		if (interaction.customId.startsWith(FILTERS_MODAL_ID)) {
+			await handleFiltersModal(interaction, ctx);
+		}
+		return;
+	}
+
+	if (interaction.isStringSelectMenu() || interaction.isButton()) {
+		if (isEventsComponent(interaction.customId)) {
+			await handleEventsComponent(interaction, ctx);
+		}
+	}
+}
+
+function isEventsComponent(customId: string): boolean {
+	return (
+		customId.startsWith("repo:evcat:") ||
+		customId.startsWith("repo:ev:") ||
+		customId.startsWith("repo:evback:") ||
+		customId.startsWith("repo:evpreset:")
+	);
+}
+
 async function onChatInput(interaction: ChatInputCommandInteraction, ctx: BotContext) {
-	if (interaction.commandName !== "repo") return;
-	await handleRepoCommand(interaction, ctx);
+	switch (interaction.commandName) {
+		case "repo":
+			return handleRepoCommand(interaction, ctx);
+		case "help":
+			return handleHelp(interaction, ctx);
+		case "stats":
+			return handleStats(interaction, ctx);
+		case "about":
+			return handleAbout(interaction, ctx);
+		case "ping":
+			return handlePing(interaction, ctx);
+		default:
+			return;
+	}
+}
+
+async function replyWithError(interaction: Interaction, ctx: BotContext): Promise<void> {
+	if (!interaction.isRepliable()) return;
+	const { locale } = await guildContext(ctx, interaction).catch(() => ({ locale: "en" as const }));
+	const components = [new TextDisplayBuilder().setContent(t(locale, "common.error.generic"))];
+
+	try {
+		if (interaction.deferred && !interaction.replied) {
+			// A deferred V2 reply cannot be edited with legacy `content`.
+			await interaction.editReply({
+				content: null,
+				embeds: [],
+				flags: MessageFlags.IsComponentsV2 as InteractionEditReplyOptions["flags"],
+				components,
+			});
+		} else if (interaction.replied) {
+			await interaction.followUp({
+				flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+				components,
+			});
+		} else {
+			await interaction.reply({
+				flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+				components,
+			});
+		}
+	} catch (replyErr) {
+		ctx.logger.error({ err: replyErr }, "Failed to send interaction error reply");
+	}
 }
 
 export async function registerCommands(
@@ -96,14 +177,13 @@ export async function registerCommands(
 	env: FullyConfiguredEnv,
 	logger: Logger,
 ): Promise<void> {
-	const body = [repoCommand.data.toJSON()];
 	if (env.DISCORD_GUILD_ID) {
 		const guild = await client.guilds.fetch(env.DISCORD_GUILD_ID);
-		await guild.commands.set(body);
+		await guild.commands.set(COMMANDS);
 		logger.info({ guildId: env.DISCORD_GUILD_ID }, "Registered guild slash commands");
 		return;
 	}
-	await client.application?.commands.set(body);
+	await client.application?.commands.set(COMMANDS);
 	logger.info("Registered global slash commands");
 }
 

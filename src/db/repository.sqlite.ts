@@ -1,36 +1,74 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { parseEnabledEvents, type EventType } from "../config/events.js";
+import type { EventType } from "../config/events.js";
+import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
 import * as schema from "./schema.sqlite.js";
 import type {
 	CreateTrackedRepoInput,
+	DeliveryResult,
+	GuildSettings,
+	RepoFilters,
 	RepoRepository,
+	RepoStyleInput,
 	RotateSecretInput,
 	TrackedRepo,
 } from "./types.js";
 
 type SqliteDb = BetterSQLite3Database<typeof schema>;
 
-function mapRow(row: typeof schema.trackedRepos.$inferSelect): TrackedRepo {
-	return {
-		id: row.id,
-		guildId: row.guildId,
-		owner: row.owner,
-		repo: row.repo,
-		channelId: row.channelId,
-		trackingId: row.trackingId,
-		encryptedSecret: row.encryptedSecret,
-		encryptedPreviousSecret: row.encryptedPreviousSecret ?? null,
-		enabledEvents: parseEnabledEvents(row.enabledEvents),
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
-	};
-}
+type RepoUpdate = Partial<typeof schema.trackedRepos.$inferInsert>;
 
 export function createSqliteRepository(db: SqliteDb): RepoRepository {
+	function updateRepo(
+		guildId: string,
+		owner: string,
+		repo: string,
+		values: RepoUpdate,
+	): TrackedRepo | null {
+		const row = db
+			.update(schema.trackedRepos)
+			.set({ ...values, updatedAt: new Date() })
+			.where(
+				and(
+					eq(schema.trackedRepos.guildId, guildId),
+					eq(schema.trackedRepos.owner, owner),
+					eq(schema.trackedRepos.repo, repo),
+				),
+			)
+			.returning()
+			.get();
+		return row ? mapRepoRow(row) : null;
+	}
+
 	return {
 		async ensureGuild(guildId) {
 			db.insert(schema.guilds).values({ guildId }).onConflictDoNothing().run();
+		},
+
+		async getGuildSettings(guildId): Promise<GuildSettings | null> {
+			const row = db
+				.select()
+				.from(schema.guilds)
+				.where(eq(schema.guilds.guildId, guildId))
+				.get();
+			return row ? mapGuildRow(row) : null;
+		},
+
+		async updateGuildSettings(guildId, settings) {
+			await this.ensureGuild(guildId);
+			db.update(schema.guilds)
+				.set({
+					...(settings.locale !== undefined ? { locale: settings.locale } : {}),
+					...(settings.defaultTheme !== undefined
+						? { defaultTheme: settings.defaultTheme }
+						: {}),
+					...(settings.defaultDisplayMode !== undefined
+						? { defaultDisplayMode: settings.defaultDisplayMode }
+						: {}),
+					updatedAt: new Date(),
+				})
+				.where(eq(schema.guilds.guildId, guildId))
+				.run();
 		},
 
 		async addRepo(input: CreateTrackedRepoInput) {
@@ -50,7 +88,7 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 				.returning()
 				.get();
 			if (!row) throw new Error("Failed to insert tracked repo");
-			return mapRow(row);
+			return mapRepoRow(row);
 		},
 
 		async removeRepo(guildId, owner, repo) {
@@ -65,7 +103,7 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 				)
 				.returning()
 				.get();
-			return row ? mapRow(row) : null;
+			return row ? mapRepoRow(row) : null;
 		},
 
 		async listRepos(guildId) {
@@ -74,14 +112,11 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 				.from(schema.trackedRepos)
 				.where(eq(schema.trackedRepos.guildId, guildId))
 				.all();
-			return rows.map(mapRow);
+			return rows.map(mapRepoRow);
 		},
 
 		async countTrackedRepos() {
-			const row = db
-				.select({ value: count() })
-				.from(schema.trackedRepos)
-				.get();
+			const row = db.select({ value: count() }).from(schema.trackedRepos).get();
 			return row?.value ?? 0;
 		},
 
@@ -97,7 +132,7 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 					),
 				)
 				.get();
-			return row ? mapRow(row) : null;
+			return row ? mapRepoRow(row) : null;
 		},
 
 		async findByTrackingId(trackingId) {
@@ -106,59 +141,51 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 				.from(schema.trackedRepos)
 				.where(eq(schema.trackedRepos.trackingId, trackingId))
 				.get();
-			return row ? mapRow(row) : null;
+			return row ? mapRepoRow(row) : null;
 		},
 
 		async updateChannel(guildId, owner, repo, channelId) {
-			const row = db
-				.update(schema.trackedRepos)
-				.set({ channelId, updatedAt: new Date() })
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, guildId),
-						eq(schema.trackedRepos.owner, owner),
-						eq(schema.trackedRepos.repo, repo),
-					),
-				)
-				.returning()
-				.get();
-			return row ? mapRow(row) : null;
+			return updateRepo(guildId, owner, repo, { channelId });
 		},
 
 		async updateEvents(guildId, owner, repo, enabledEvents: EventType[]) {
-			const row = db
-				.update(schema.trackedRepos)
-				.set({ enabledEvents, updatedAt: new Date() })
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, guildId),
-						eq(schema.trackedRepos.owner, owner),
-						eq(schema.trackedRepos.repo, repo),
-					),
-				)
-				.returning()
-				.get();
-			return row ? mapRow(row) : null;
+			return updateRepo(guildId, owner, repo, { enabledEvents });
+		},
+
+		async setPaused(guildId, owner, repo, paused) {
+			return updateRepo(guildId, owner, repo, { paused });
+		},
+
+		async updateStyle(guildId, owner, repo, style: RepoStyleInput) {
+			return updateRepo(guildId, owner, repo, {
+				...(style.theme !== undefined ? { theme: style.theme } : {}),
+				...(style.displayMode !== undefined ? { displayMode: style.displayMode } : {}),
+				...(style.locale !== undefined ? { locale: style.locale } : {}),
+			});
+		},
+
+		async updateFilters(guildId, owner, repo, filters: RepoFilters) {
+			return updateRepo(guildId, owner, repo, {
+				branchInclude: filters.branchInclude,
+				branchExclude: filters.branchExclude,
+				labelFilter: filters.labels,
+				ignoredActors: filters.ignoredActors,
+			});
+		},
+
+		async updateRoutes(guildId, owner, repo, routes) {
+			return updateRepo(guildId, owner, repo, { eventRoutes: routes });
+		},
+
+		async updateMentions(guildId, owner, repo, mentions) {
+			return updateRepo(guildId, owner, repo, { mentionRules: mentions });
 		},
 
 		async rotateSecret(input: RotateSecretInput) {
-			const row = db
-				.update(schema.trackedRepos)
-				.set({
-					encryptedSecret: input.encryptedSecret,
-					encryptedPreviousSecret: input.encryptedPreviousSecret,
-					updatedAt: new Date(),
-				})
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, input.guildId),
-						eq(schema.trackedRepos.owner, input.owner),
-						eq(schema.trackedRepos.repo, input.repo),
-					),
-				)
-				.returning()
-				.get();
-			return row ? mapRow(row) : null;
+			return updateRepo(input.guildId, input.owner, input.repo, {
+				encryptedSecret: input.encryptedSecret,
+				encryptedPreviousSecret: input.encryptedPreviousSecret,
+			});
 		},
 
 		async clearPreviousSecret(trackingId) {
@@ -177,6 +204,27 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 			if (existing) return false;
 			db.insert(schema.deliveries).values({ deliveryId, trackingId }).run();
 			return true;
+		},
+
+		async recordDeliveryResult(result: DeliveryResult) {
+			const now = new Date();
+			db.update(schema.trackedRepos)
+				.set(
+					result.success
+						? {
+								lastDeliveryAt: now,
+								lastSuccessAt: now,
+								deliveredCount: sql`${schema.trackedRepos.deliveredCount} + 1`,
+							}
+						: {
+								lastDeliveryAt: now,
+								lastErrorAt: now,
+								lastError: clampError(result.error),
+								failedCount: sql`${schema.trackedRepos.failedCount} + 1`,
+							},
+				)
+				.where(eq(schema.trackedRepos.trackingId, result.trackingId))
+				.run();
 		},
 	};
 }

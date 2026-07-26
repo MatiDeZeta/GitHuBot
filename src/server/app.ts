@@ -1,19 +1,15 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import rateLimit from "@fastify/rate-limit";
-import {
-	ChannelType,
-	Client,
-	type NewsChannel,
-	type TextChannel,
-} from "discord.js";
+import type { Client } from "discord.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { formatGitHubEvent } from "../bot/components/index.js";
 import { githubEventToType } from "../config/events.js";
 import { isFullyConfigured, missingConfigKeys, type Env } from "../config/env.js";
 import type { Logger } from "../config/logger.js";
 import { decryptSecret } from "../crypto/secrets.js";
 import type { RepoRepository } from "../db/types.js";
+import { dispatchEvent, type DispatchContext } from "../delivery/dispatch.js";
 import { verifyGitHubSignature } from "../github/verify.js";
+import { metrics } from "../metrics.js";
 
 export interface ServerContext {
 	env: Env;
@@ -22,6 +18,8 @@ export interface ServerContext {
 	masterKey: Buffer | null;
 	discord: Client | null;
 	ready: boolean;
+	/** Render defaults resolved from the environment at boot. */
+	renderDefaults: DispatchContext["defaults"];
 }
 
 declare module "fastify" {
@@ -63,6 +61,20 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		configured: isFullyConfigured(ctx.env) && ctx.ready,
 		missing: missingConfigKeys(ctx.env),
 	}));
+
+	app.get("/metrics", async () => {
+		const snapshot = metrics.snapshot();
+		return {
+			ok: true,
+			uptimeMs: snapshot.uptimeMs,
+			received: snapshot.received,
+			delivered: snapshot.delivered,
+			failed: snapshot.failed,
+			filtered: snapshot.filtered,
+			duplicates: snapshot.duplicates,
+			deliveredToday: snapshot.deliveredToday,
+		};
+	});
 
 	app.post<{ Params: { trackingId: string } }>(
 		"/webhooks/github/:trackingId",
@@ -136,9 +148,12 @@ async function handleWebhook(
 
 	const isNew = await repository.tryRecordDelivery(deliveryId, trackingId);
 	if (!isNew) {
+		metrics.recordDuplicate();
 		ctx.logger.info({ deliveryId }, "Duplicate delivery ignored");
 		return reply.code(200).send({ ok: true, duplicate: true });
 	}
+
+	metrics.recordReceived();
 
 	if (eventName === "ping") {
 		ctx.logger.info({ trackingId }, "GitHub ping received");
@@ -150,48 +165,47 @@ async function handleWebhook(
 		return reply.code(200).send({ ok: true, ignored: true, reason: "unsupported_event" });
 	}
 
-	if (!tracked.enabledEvents.includes(eventType)) {
-		return reply.code(200).send({ ok: true, ignored: true, reason: "disabled" });
-	}
+	const guild = await repository.getGuildSettings(tracked.guildId);
+	const outcome = await dispatchEvent(
+		{
+			client: discord,
+			repository,
+			logger: ctx.logger,
+			defaults: ctx.renderDefaults,
+		},
+		tracked,
+		eventType,
+		request.body,
+		guild,
+	);
 
-	const formatted = formatGitHubEvent(eventType, request.body);
-	if (!formatted) {
-		return reply.code(200).send({ ok: true, ignored: true, reason: "no_message" });
-	}
-
-	try {
-		const channel = await discord.channels.fetch(tracked.channelId);
-		if (
-			!channel ||
-			(channel.type !== ChannelType.GuildText &&
-				channel.type !== ChannelType.GuildAnnouncement)
-		) {
+	switch (outcome.status) {
+		case "delivered":
+			ctx.logger.info(
+				{
+					eventType,
+					deliveryId,
+					repo: `${tracked.owner}/${tracked.repo}`,
+				},
+				"Delivered GitHub event to Discord",
+			);
+			return reply.code(200).send({ ok: true, delivered: true });
+		case "paused":
+		case "disabled":
+		case "no_message":
+			return reply.code(200).send({ ok: true, ignored: true, reason: outcome.status });
+		case "filtered":
+			return reply
+				.code(200)
+				.send({ ok: true, ignored: true, reason: "filtered", filter: outcome.reason });
+		case "bad_channel":
 			ctx.logger.warn(
-				{ channelId: tracked.channelId, trackingId },
-				"Target channel missing or not text-based",
+				{ channelId: outcome.channelId, trackingId },
+				"Target channel missing or not writable",
 			);
 			return reply.code(200).send({ ok: true, delivered: false, reason: "bad_channel" });
-		}
-
-		const textChannel = channel as TextChannel | NewsChannel;
-		await textChannel.send({
-			components: formatted.components,
-			flags: formatted.flags,
-		});
-
-		ctx.logger.info(
-			{
-				eventType,
-				deliveryId,
-				repo: `${tracked.owner}/${tracked.repo}`,
-				channelId: tracked.channelId,
-			},
-			"Delivered GitHub event to Discord",
-		);
-		return reply.code(200).send({ ok: true, delivered: true });
-	} catch (err) {
-		ctx.logger.error({ err, deliveryId, eventType }, "Failed to deliver to Discord");
-		return reply.code(500).send({ error: "Delivery failed" });
+		case "failed":
+			return reply.code(500).send({ error: "Delivery failed" });
 	}
 }
 

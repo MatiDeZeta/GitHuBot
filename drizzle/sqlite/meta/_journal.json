@@ -15,6 +15,13 @@
 			"when": 1720000000001,
 			"tag": "0001_previous_secret",
 			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1720000000002,
+			"tag": "0002_v110",
+			"breakpoints": true
 		}
 	]
 }
