@@ -1,6 +1,7 @@
 import { Locale } from "discord.js";
 import type { EventCategoryId, EventType } from "../config/events.js";
 import { en } from "./locales/en.js";
+import { es } from "./locales/es.js";
 
 export type TranslationKey = keyof typeof en;
 export type TParams = Record<string, string | number>;
@@ -21,7 +22,7 @@ export const DEFAULT_LOCALE = "en" as const;
  * `locales/<code>.ts` exporting a `Partial<Catalog>` and listing it here plus
  * in `CATALOGS` and `DISCORD_LOCALE_MAP`.
  */
-export const SUPPORTED_LOCALES = ["en"] as const;
+export const SUPPORTED_LOCALES = ["en", "es"] as const;
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number];
 
 export type Catalog = Record<TranslationKey, string>;
@@ -29,12 +30,15 @@ export type PartialCatalog = Partial<Catalog>;
 
 const CATALOGS: Record<AppLocale, PartialCatalog> = {
 	en,
+	es,
 };
 
 /** Maps Discord's locale codes onto the locales we actually have. */
 const DISCORD_LOCALE_MAP: Partial<Record<Locale, AppLocale>> = {
 	[Locale.EnglishUS]: "en",
 	[Locale.EnglishGB]: "en",
+	[Locale.SpanishES]: "es",
+	[Locale.SpanishLATAM]: "es",
 };
 
 export function isAppLocale(value: unknown): value is AppLocale {
