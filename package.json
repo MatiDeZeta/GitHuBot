@@ -34,7 +34,7 @@
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.5.5",
+		"@biomejs/biome": "2.5.12",
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/node": "^22.18.13",
 		"drizzle-kit": "^0.31.10",
