@@ -1,4 +1,4 @@
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import type { EventType } from "../config/events.js";
 import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
@@ -13,6 +13,16 @@ import type {
 	RotateSecretInput,
 	TrackedRepo,
 } from "./types.js";
+
+/** UTC day index, shared by both dialects so buckets line up. */
+function dayIndex(ms: number): number {
+	return Math.floor(ms / 86_400_000);
+}
+
+/** Fixed-width buckets, oldest first, zero-filled for days with no traffic. */
+function emptyBuckets(days: number): number[] {
+	return new Array<number>(days).fill(0);
+}
 
 type SqliteDb = BetterSQLite3Database<typeof schema>;
 
@@ -199,6 +209,35 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 				.returning({ deliveryId: schema.deliveries.deliveryId })
 				.get();
 			return row !== undefined;
+		},
+
+		async activityByDay(trackingIds, days) {
+			const buckets = new Map<string, number[]>();
+			if (trackingIds.length === 0 || days <= 0) return buckets;
+			for (const id of trackingIds) buckets.set(id, emptyBuckets(days));
+
+			const today = dayIndex(Date.now());
+			const since = new Date((today - days + 1) * 86_400_000);
+			// createdAt is stored as epoch ms, so integer division buckets by day.
+			const day = sql<number>`${schema.deliveries.createdAt} / 86400000`;
+			const rows = db
+				.select({ trackingId: schema.deliveries.trackingId, day, total: count() })
+				.from(schema.deliveries)
+				.where(
+					and(
+						inArray(schema.deliveries.trackingId, trackingIds),
+						gte(schema.deliveries.createdAt, since),
+					),
+				)
+				.groupBy(schema.deliveries.trackingId, day)
+				.all();
+
+			for (const row of rows) {
+				const slot = buckets.get(row.trackingId);
+				const offset = days - 1 - (today - Number(row.day));
+				if (slot && offset >= 0 && offset < days) slot[offset] = Number(row.total);
+			}
+			return buckets;
 		},
 
 		async recordDeliveryResult(result: DeliveryResult) {

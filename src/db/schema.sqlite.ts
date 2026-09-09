@@ -72,7 +72,10 @@ export const deliveries = sqliteTable(
 			.notNull()
 			.$defaultFn(() => new Date()),
 	},
-	(table) => [index("deliveries_created_at_idx").on(table.createdAt)],
+	(table) => [
+		index("deliveries_created_at_idx").on(table.createdAt),
+		index("deliveries_tracking_created_idx").on(table.trackingId, table.createdAt),
+	],
 );
 
 export type TrackedRepoRow = typeof trackedRepos.$inferSelect;

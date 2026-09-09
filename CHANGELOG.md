@@ -72,6 +72,17 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   all. Sessions are HMAC-signed cookies keyed by a value derived from `MASTER_KEY`
   (not `MASTER_KEY` itself), `HttpOnly`/`SameSite=Lax`/`Secure`, with constant-time
   CSRF and OAuth-state checks.
+- **Dashboard redesign.** Repositories are now cards rather than table rows: a
+  colour tile derived from the repository name, a delivery-health bar showing the
+  real delivered/failed split, a seven-day activity sparkline, and the failure
+  reason inline. Anything failing sorts first, since that is why the page gets
+  opened. Instance metrics moved into a single four-cell panel, and the detail
+  page renders each event category as a progress bar in that category's own
+  accent colour. Near-black surfaces with colour reserved for status.
+- **New `activityByDay` query** (plus a `deliveries (tracking_id, created_at)`
+  index, migration `0003_delivery_activity`) backing the sparklines. It aggregates
+  the existing deliveries ledger by UTC day, so it counts events *received* per
+  repository — including ones later filtered — rather than messages posted.
 - **Dashboard hardening for internet-facing hosts.** Every dashboard response now
   carries a strict CSP — `script-src 'none'` is achievable because the page ships no
   JavaScript, so an escaping mistake still could not execute — plus

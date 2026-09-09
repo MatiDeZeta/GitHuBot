@@ -71,7 +71,10 @@ export const deliveries = pgTable(
 		trackingId: text("tracking_id").notNull(),
 		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 	},
-	(table) => [index("deliveries_created_at_idx").on(table.createdAt)],
+	(table) => [
+		index("deliveries_created_at_idx").on(table.createdAt),
+		index("deliveries_tracking_created_idx").on(table.trackingId, table.createdAt),
+	],
 );
 
 export type TrackedRepoRow = typeof trackedRepos.$inferSelect;

@@ -188,7 +188,8 @@ describe("dashboard routes", () => {
 		});
 		expect(res.statusCode).toBe(200);
 		expect(res.body).toContain("acme/app");
-		expect(res.body).toContain("Instance health");
+		expect(res.body).toContain("Overview");
+		expect(res.body).toContain("DELIVERED");
 	});
 
 	it("refuses a guild the session does not manage", async () => {

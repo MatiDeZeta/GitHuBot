@@ -20,7 +20,14 @@ import {
 	SESSION_COOKIE,
 	serializeCookie,
 } from "./session.js";
-import { errorPage, overviewPage, type RepoView, repoDetailPage, signInPage } from "./views.js";
+import {
+	ACTIVITY_DAYS,
+	errorPage,
+	overviewPage,
+	type RepoView,
+	repoDetailPage,
+	signInPage,
+} from "./views.js";
 
 export interface DashboardContext {
 	env: DashboardEnv;
@@ -208,7 +215,13 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 		}
 
 		const repos = await ctx.repository.listRepos(guildId);
-		const views = await Promise.all(repos.map((repo) => toView(ctx, repo)));
+		const activity = await ctx.repository.activityByDay(
+			repos.map((repo) => repo.trackingId),
+			ACTIVITY_DAYS,
+		);
+		const views = await Promise.all(
+			repos.map((repo) => toView(ctx, repo, activity.get(repo.trackingId))),
+		);
 		return html(reply, 200, overviewPage(session, guildId, views, metrics.snapshot()));
 	});
 
@@ -354,8 +367,16 @@ async function channelName(ctx: DashboardContext, channelId: string): Promise<st
 	return channelId;
 }
 
-async function toView(ctx: DashboardContext, repo: TrackedRepo): Promise<RepoView> {
-	return { repo, channelName: await channelName(ctx, repo.channelId) };
+async function toView(
+	ctx: DashboardContext,
+	repo: TrackedRepo,
+	activity?: number[],
+): Promise<RepoView> {
+	return {
+		repo,
+		channelName: await channelName(ctx, repo.channelId),
+		activity: activity ?? new Array<number>(ACTIVITY_DAYS).fill(0),
+	};
 }
 
 async function resolveRouteNames(

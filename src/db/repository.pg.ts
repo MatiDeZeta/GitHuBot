@@ -1,4 +1,4 @@
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { EventType } from "../config/events.js";
 import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
@@ -13,6 +13,16 @@ import type {
 	RotateSecretInput,
 	TrackedRepo,
 } from "./types.js";
+
+/** UTC day index, shared by both dialects so buckets line up. */
+function dayIndex(ms: number): number {
+	return Math.floor(ms / 86_400_000);
+}
+
+/** Fixed-width buckets, oldest first, zero-filled for days with no traffic. */
+function emptyBuckets(days: number): number[] {
+	return new Array<number>(days).fill(0);
+}
 
 type PgDb = PostgresJsDatabase<typeof schema>;
 
@@ -192,6 +202,34 @@ export function createPgRepository(db: PgDb): RepoRepository {
 				.onConflictDoNothing()
 				.returning({ deliveryId: schema.deliveries.deliveryId });
 			return rows.length > 0;
+		},
+
+		async activityByDay(trackingIds, days) {
+			const buckets = new Map<string, number[]>();
+			if (trackingIds.length === 0 || days <= 0) return buckets;
+			for (const id of trackingIds) buckets.set(id, emptyBuckets(days));
+
+			const today = dayIndex(Date.now());
+			const since = new Date((today - days + 1) * 86_400_000);
+			// createdAt is a timestamptz here, so bucket with date_trunc.
+			const day = sql<string>`date_trunc('day', ${schema.deliveries.createdAt} at time zone 'UTC')`;
+			const rows = await db
+				.select({ trackingId: schema.deliveries.trackingId, day, total: count() })
+				.from(schema.deliveries)
+				.where(
+					and(
+						inArray(schema.deliveries.trackingId, trackingIds),
+						gte(schema.deliveries.createdAt, since),
+					),
+				)
+				.groupBy(schema.deliveries.trackingId, day);
+
+			for (const row of rows) {
+				const slot = buckets.get(row.trackingId);
+				const offset = days - 1 - (today - dayIndex(new Date(row.day).getTime()));
+				if (slot && offset >= 0 && offset < days) slot[offset] = Number(row.total);
+			}
+			return buckets;
 		},
 
 		async recordDeliveryResult(result: DeliveryResult) {

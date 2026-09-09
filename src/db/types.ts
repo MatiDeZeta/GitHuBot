@@ -161,4 +161,11 @@ export interface RepoRepository {
 	tryRecordDelivery(deliveryId: string, trackingId: string): Promise<boolean>;
 	/** Updates the health counters shown by `/repo health` and `/repo list`. */
 	recordDeliveryResult(result: DeliveryResult): Promise<void>;
+	/**
+	 * Deliveries received per UTC day for each tracking id, oldest first, one
+	 * entry per day so the caller can render a fixed-width sparkline.
+	 * Counts every delivery accepted from GitHub — including ones later filtered
+	 * or disabled — so it reads as repository activity, not messages posted.
+	 */
+	activityByDay(trackingIds: string[], days: number): Promise<Map<string, number[]>>;
 }
