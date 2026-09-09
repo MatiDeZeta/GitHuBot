@@ -163,8 +163,9 @@ export async function registerDashboard(
 
 			const view = await toView(ctx, repo);
 			const channelNames = await resolveRouteNames(ctx, repo);
+			const roleNames = await resolveRoleNames(ctx, repo);
 			const notice = noticeFrom(request.query as Record<string, unknown>);
-			return html(reply, 200, repoDetailPage(session, view, channelNames, notice));
+			return html(reply, 200, repoDetailPage(session, view, channelNames, roleNames, notice));
 		},
 	);
 
@@ -306,6 +307,25 @@ async function resolveRouteNames(
 	const names = new Map<string, string>();
 	for (const channelId of Object.values(repo.eventRoutes)) {
 		if (!names.has(channelId)) names.set(channelId, await channelName(ctx, channelId));
+	}
+	return names;
+}
+
+/** Role ids are meaningless to a human; show the name where Discord will give it. */
+async function resolveRoleNames(
+	ctx: DashboardContext,
+	repo: TrackedRepo,
+): Promise<Map<string, string>> {
+	const names = new Map<string, string>();
+	const ids = [...new Set(Object.values(repo.mentionRules).flat())];
+	if (ids.length === 0) return names;
+
+	const guild = await ctx.discord.guilds.fetch(repo.guildId).catch(() => null);
+	if (!guild) return names;
+
+	for (const id of ids) {
+		const role = await guild.roles.fetch(id).catch(() => null);
+		if (role) names.set(id, role.name);
 	}
 	return names;
 }

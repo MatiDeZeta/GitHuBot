@@ -246,6 +246,7 @@ export function repoDetailPage(
 	session: DashboardSession,
 	view: RepoView,
 	channelNames: Map<string, string>,
+	roleNames: Map<string, string>,
 	notice: { kind: "ok" | "error"; text: string } | null,
 ): string {
 	const { repo, channelName } = view;
@@ -265,7 +266,7 @@ export function repoDetailPage(
 				: "none enabled";
 		return `<div class="item"><div class="key" style="background:${color}"></div>
 			<div class="col" style="gap:5px;flex-grow:1;min-width:0"><span style="font-size:13px;font-weight:500${on.length === 0 ? ";color:#9aa4b2" : ""}">${CATEGORY_LABEL[category.id]}</span><span class="mono dim" style="font-size:11.5px">${escapeHtml(names)}</span></div>
-			<span class="mono ${on.length > 0 ? "muted" : "dim"}" style="font-size:12px">${on.length} / ${all.length}</span></div>`;
+			<span class="mono ${on.length > 0 ? "muted" : "dim"}" style="font-size:12px;white-space:nowrap">${on.length} / ${all.length}</span></div>`;
 	}).join("");
 
 	const routes = Object.entries(repo.eventRoutes);
@@ -330,7 +331,7 @@ export function repoDetailPage(
 					<div>
 						<div class="h2" style="margin-bottom:12px">Mentions</div>
 						<div class="panel">
-							${mentions.length === 0 ? `<div class="item"><span class="dim" style="font-size:12.5px">No role pings</span></div>` : mentions.map(([event, roles]) => `<div class="item"><span style="font-size:12.5px;flex-grow:1" class="mono">${escapeHtml(event)}</span><span class="tag neu">${roles.map((r) => `&lt;@&amp;${escapeHtml(r)}&gt;`).join(" ")}</span></div>`).join("")}
+							${mentions.length === 0 ? `<div class="item"><span class="dim" style="font-size:12.5px">No role pings</span></div>` : mentions.map(([event, roles]) => `<div class="item"><span style="font-size:12.5px;flex-grow:1" class="mono">${escapeHtml(event)}</span><span style="display:flex;gap:6px;flex-wrap:wrap">${roles.map((r) => `<span class="tag neu">@${escapeHtml(roleNames.get(r) ?? r)}</span>`).join("")}</span></div>`).join("")}
 							<div class="foot">Pings are scoped so repository text cannot trigger one</div>
 						</div>
 					</div>
