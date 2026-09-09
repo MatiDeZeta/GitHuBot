@@ -21,6 +21,16 @@ export const SESSION_COOKIE = "githubot_session";
 export const OAUTH_STATE_COOKIE = "githubot_oauth_state";
 
 /**
+ * Over https the `__Host-` prefix is used, which browsers only honour on a cookie
+ * that is Secure, Path=/ and carries no Domain — so a compromised sibling subdomain
+ * cannot overwrite the session. The prefix is invalid without Secure, so plain-http
+ * deployments keep the bare name.
+ */
+export function cookieName(base: string, secure: boolean): string {
+	return secure ? `__Host-${base}` : base;
+}
+
+/**
  * Derived so the cookie key is not the same bytes that decrypt webhook secrets;
  * a signing oracle then cannot be turned into a decryption oracle.
  */

@@ -9,6 +9,7 @@ import { metrics } from "../metrics.js";
 import { authorizeUrl, completeSignIn, createOAuthState } from "./oauth.js";
 import {
 	clearCookie,
+	cookieName,
 	createCsrfToken,
 	csrfMatches,
 	type DashboardSession,
@@ -32,6 +33,22 @@ export interface DashboardContext {
 
 const HTML = "text/html; charset=utf-8";
 
+/**
+ * The page ships zero JavaScript, so `script-src 'none'` is achievable — an HTML
+ * escaping mistake still could not execute anything. `style-src 'unsafe-inline'`
+ * is required because the markup styles elements inline.
+ */
+const CSP = [
+	"default-src 'none'",
+	"script-src 'none'",
+	"style-src 'unsafe-inline'",
+	"img-src 'self' data:",
+	"form-action 'self'",
+	"frame-ancestors 'none'",
+	"base-uri 'none'",
+	"connect-src 'none'",
+].join("; ");
+
 export async function registerDashboard(
 	app: FastifyInstance,
 	ctx: DashboardContext,
@@ -40,17 +57,56 @@ export async function registerDashboard(
 	// would silently never receive them back.
 	const secure = ctx.env.DASHBOARD_BASE_URL.startsWith("https://");
 	const sessionSeconds = ctx.env.DASHBOARD_SESSION_HOURS * 3600;
+	const sessionCookie = cookieName(SESSION_COOKIE, secure);
+	const stateCookie = cookieName(OAUTH_STATE_COOKIE, secure);
 
-	app.addContentTypeParser(
-		"application/x-www-form-urlencoded",
-		{ parseAs: "string" },
-		(_req, body, done) => {
-			done(null, Object.fromEntries(new URLSearchParams(String(body))));
-		},
-	);
+	// Registered as an encapsulated plugin so these hooks and the urlencoded parser
+	// apply to dashboard routes only — the webhook endpoint must not accept forms.
+	await app.register(async (dash: FastifyInstance) => {
+		dash.addContentTypeParser(
+			"application/x-www-form-urlencoded",
+			{ parseAs: "string" },
+			(_req, body, done) => {
+				done(null, Object.fromEntries(new URLSearchParams(String(body))));
+			},
+		);
+
+		dash.addHook("onSend", async (_request, reply, payload) => {
+			reply.header("content-security-policy", CSP);
+			reply.header("x-content-type-options", "nosniff");
+			reply.header("x-frame-options", "DENY");
+			reply.header("referrer-policy", "no-referrer");
+			reply.header(
+				"permissions-policy",
+				"camera=(), microphone=(), geolocation=(), interest-cohort=()",
+			);
+			reply.header("cross-origin-opener-policy", "same-origin");
+			reply.header("cross-origin-resource-policy", "same-origin");
+			// Every dashboard page is per-user data behind a cookie; never let a proxy
+			// or the back button hand it to someone else.
+			reply.header("cache-control", "no-store, max-age=0");
+			if (secure) {
+				reply.header("strict-transport-security", "max-age=31536000; includeSubDomains");
+			}
+			return payload;
+		});
+
+		registerRoutes(dash, ctx, { secure, sessionSeconds, sessionCookie, stateCookie });
+	});
+}
+
+interface RouteOptions {
+	secure: boolean;
+	sessionSeconds: number;
+	sessionCookie: string;
+	stateCookie: string;
+}
+
+function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: RouteOptions): void {
+	const { secure, sessionSeconds, sessionCookie, stateCookie } = opts;
 
 	function sessionOf(request: FastifyRequest): DashboardSession | null {
-		return decodeSession(readCookie(request.headers.cookie, SESSION_COOKIE), ctx.masterKey);
+		return decodeSession(readCookie(request.headers.cookie, sessionCookie), ctx.masterKey);
 	}
 
 	function html(reply: FastifyReply, status: number, body: string): FastifyReply {
@@ -71,25 +127,27 @@ export async function registerDashboard(
 		return reply.redirect(`/dashboard/g/${encodeURIComponent(first.id)}`);
 	});
 
-	app.get("/dashboard/login", async (_request, reply) => {
+	// Unauthenticated and each one costs a Discord round-trip, so limit them well
+	// below the global allowance.
+	const authLimit = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
+
+	app.get("/dashboard/login", authLimit, async (_request, reply) => {
 		const state = createOAuthState();
 		return reply
-			.header(
-				"set-cookie",
-				serializeCookie(OAUTH_STATE_COOKIE, state, { maxAgeSeconds: 600, secure }),
-			)
+			.header("set-cookie", serializeCookie(stateCookie, state, { maxAgeSeconds: 600, secure }))
 			.redirect(authorizeUrl(ctx.env, state));
 	});
 
 	app.get("/dashboard/logout", async (_request, reply) => {
-		return reply.header("set-cookie", clearCookie(SESSION_COOKIE, secure)).redirect("/dashboard");
+		return reply.header("set-cookie", clearCookie(sessionCookie, secure)).redirect("/dashboard");
 	});
 
 	app.get<{ Querystring: { code?: string; state?: string } }>(
 		"/dashboard/auth/callback",
+		authLimit,
 		async (request, reply) => {
 			const { code, state } = request.query;
-			const expected = readCookie(request.headers.cookie, OAUTH_STATE_COOKIE);
+			const expected = readCookie(request.headers.cookie, stateCookie);
 
 			// Without this check an attacker could complete a sign-in in the victim's
 			// browser using their own Discord account (login CSRF).
@@ -126,11 +184,11 @@ export async function registerDashboard(
 				ctx.logger.info({ userId: user.id, guilds: guilds.length }, "Dashboard sign-in");
 				return reply
 					.header("set-cookie", [
-						serializeCookie(SESSION_COOKIE, encodeSession(session, ctx.masterKey), {
+						serializeCookie(sessionCookie, encodeSession(session, ctx.masterKey), {
 							maxAgeSeconds: sessionSeconds,
 							secure,
 						}),
-						clearCookie(OAUTH_STATE_COOKIE, secure),
+						clearCookie(stateCookie, secure),
 					])
 					.redirect("/dashboard");
 			} catch (err) {

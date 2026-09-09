@@ -72,6 +72,15 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   all. Sessions are HMAC-signed cookies keyed by a value derived from `MASTER_KEY`
   (not `MASTER_KEY` itself), `HttpOnly`/`SameSite=Lax`/`Secure`, with constant-time
   CSRF and OAuth-state checks.
+- **Dashboard hardening for internet-facing hosts.** Every dashboard response now
+  carries a strict CSP — `script-src 'none'` is achievable because the page ships no
+  JavaScript, so an escaping mistake still could not execute — plus
+  `frame-ancestors 'none'`/`X-Frame-Options: DENY`, `form-action 'self'`,
+  `base-uri 'none'`, `nosniff`, `Referrer-Policy: no-referrer`, COOP/CORP, HSTS on
+  https, and `Cache-Control: no-store`. Session and OAuth-state cookies take the
+  `__Host-` prefix over https. The routes moved into an encapsulated Fastify plugin so
+  the form parser and headers cannot leak onto the webhook endpoint, and the two
+  unauthenticated auth routes are rate-limited to 10/min.
 - **Six new event types** (42 → 48), all verified as repository-webhook-scoped against
   [GitHub's webhook documentation](https://docs.github.com/en/webhooks/webhook-events-and-payloads):
   `sub_issues` and `issue_dependencies` (issues), `repository_advisory`,

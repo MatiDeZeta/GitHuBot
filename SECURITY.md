@@ -49,6 +49,22 @@ accepts browser traffic, so it is deliberately narrow:
   time, and the OAuth `state` parameter is checked the same way to prevent login CSRF.
 - **All rendered values are HTML-escaped**, including `lastError`, which can carry
   attacker-influenced repository text.
+- **The page ships no JavaScript at all**, so it is served under
+  `script-src 'none'` — an escaping mistake could not execute anything even if one
+  slipped through. Alongside it: `frame-ancestors 'none'` and `X-Frame-Options: DENY`
+  (clickjacking), `form-action 'self'`, `base-uri 'none'`, `nosniff`,
+  `Referrer-Policy: no-referrer`, `Cross-Origin-Opener/Resource-Policy: same-origin`,
+  and HSTS on https.
+- **`Cache-Control: no-store`** on every dashboard response, so per-user data is never
+  held by a proxy or returned by the back button after sign-out.
+- **Cookies use the `__Host-` prefix over https**, which browsers only accept on a
+  Secure, `Path=/`, domain-less cookie — a compromised sibling subdomain cannot
+  overwrite the session.
+- **The routes are an encapsulated Fastify plugin**, so the form-body parser and these
+  headers apply to the dashboard only; the webhook endpoint still refuses anything but
+  JSON (verified by test).
+- **`/dashboard/login` and the OAuth callback are rate-limited** to 10/min, well under
+  the global allowance, since both are unauthenticated and each costs a Discord call.
 
 ## Supply chain
 

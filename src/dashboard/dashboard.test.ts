@@ -12,6 +12,7 @@ import { encryptSecret, parseMasterKey } from "../crypto/secrets.js";
 import { createDb, type DbHandle, migrate } from "../db/index.js";
 import { createServer } from "../server/app.js";
 import {
+	cookieName,
 	createCsrfToken,
 	type DashboardSession,
 	decodeSession,
@@ -19,6 +20,9 @@ import {
 	readCookie,
 	SESSION_COOKIE,
 } from "./session.js";
+
+// DASHBOARD_BASE_URL is https in these tests, so the cookie carries the __Host- prefix.
+const COOKIE = cookieName(SESSION_COOKIE, true);
 
 const GUILD = "111111111111111111";
 const OTHER_GUILD = "222222222222222222";
@@ -114,7 +118,7 @@ describe("dashboard routes", () => {
 			csrfToken,
 			expiresAt: Date.now() + 60_000,
 		};
-		return `${SESSION_COOKIE}=${encodeSession(session, masterKey)}`;
+		return `${COOKIE}=${encodeSession(session, masterKey)}`;
 	}
 
 	beforeEach(async () => {
@@ -212,7 +216,7 @@ describe("dashboard routes", () => {
 		const res = await app.inject({
 			method: "GET",
 			url: `/dashboard/g/${GUILD}`,
-			headers: { cookie: `${SESSION_COOKIE}=not.a.real.session` },
+			headers: { cookie: `${COOKIE}=not.a.real.session` },
 		});
 		expect(res.statusCode).toBe(302);
 		expect(res.headers.location).toBe("/dashboard");
@@ -332,6 +336,55 @@ describe("dashboard routes", () => {
 		expect(res.body).toContain("&lt;script&gt;");
 	});
 
+	it("sends hardening headers on every dashboard response", async () => {
+		app = await build(DASHBOARD_ENV);
+		const res = await app.inject({
+			method: "GET",
+			url: `/dashboard/g/${GUILD}`,
+			headers: { cookie: cookieFor([GUILD]) },
+		});
+
+		const csp = String(res.headers["content-security-policy"]);
+		// The page ships no JavaScript, so nothing may execute even if escaping fails.
+		expect(csp).toContain("script-src 'none'");
+		expect(csp).toContain("frame-ancestors 'none'");
+		expect(csp).toContain("form-action 'self'");
+		expect(res.headers["x-content-type-options"]).toBe("nosniff");
+		expect(res.headers["x-frame-options"]).toBe("DENY");
+		expect(res.headers["referrer-policy"]).toBe("no-referrer");
+		// Per-user data behind a cookie must never be cached by a proxy.
+		expect(String(res.headers["cache-control"])).toContain("no-store");
+		expect(res.headers["strict-transport-security"]).toContain("max-age=");
+	});
+
+	it("uses the __Host- cookie prefix over https", async () => {
+		app = await build(DASHBOARD_ENV);
+		const res = await app.inject({ method: "GET", url: "/dashboard/login" });
+		expect(String(res.headers["set-cookie"])).toContain("__Host-githubot_oauth_state=");
+	});
+
+	it("does not use the __Host- prefix on plain http, where it would be rejected", async () => {
+		app = await build({ ...DASHBOARD_ENV, DASHBOARD_BASE_URL: "http://localhost:4321" });
+		const res = await app.inject({ method: "GET", url: "/dashboard/login" });
+		const cookie = String(res.headers["set-cookie"]);
+		expect(cookie).toContain("githubot_oauth_state=");
+		expect(cookie).not.toContain("__Host-");
+		expect(cookie).not.toContain("Secure");
+	});
+
+	it("does not let the dashboard's form parser reach the webhook endpoint", async () => {
+		app = await build(DASHBOARD_ENV);
+		// The urlencoded parser is registered inside the dashboard's encapsulated
+		// scope, so the webhook route must still refuse a form body.
+		const res = await app.inject({
+			method: "POST",
+			url: "/webhooks/github/track-1",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			payload: "a=1",
+		});
+		expect(res.statusCode).toBe(415);
+	});
+
 	it("clears the session on sign out", async () => {
 		app = await build(DASHBOARD_ENV);
 		const res = await app.inject({
@@ -340,6 +393,6 @@ describe("dashboard routes", () => {
 			headers: { cookie: cookieFor([GUILD]) },
 		});
 		expect(res.statusCode).toBe(302);
-		expect(readCookie(String(res.headers["set-cookie"]), SESSION_COOKIE)).toBe("");
+		expect(readCookie(String(res.headers["set-cookie"]), COOKIE)).toBe("");
 	});
 });
