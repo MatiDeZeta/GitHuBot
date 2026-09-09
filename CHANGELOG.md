@@ -62,6 +62,16 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
 
 ### Added
 
+- **Optional read-only web dashboard** (`DASHBOARD_ENABLED`). Discord OAuth2 sign-in
+  scoped to servers where you hold Manage Server; shows delivery health, the last error
+  verbatim, event selection, filters, routing, mentions and appearance, and can pause,
+  resume or send a test message. It cannot add or remove repositories, change settings,
+  or reveal a webhook secret — those stay behind `/repo`. Server-rendered with **no new
+  dependencies**, no build step and no CDN, so it works offline and does not widen the
+  supply-chain surface. Off by default: with the flag unset no route is registered at
+  all. Sessions are HMAC-signed cookies keyed by a value derived from `MASTER_KEY`
+  (not `MASTER_KEY` itself), `HttpOnly`/`SameSite=Lax`/`Secure`, with constant-time
+  CSRF and OAuth-state checks.
 - **Six new event types** (42 → 48), all verified as repository-webhook-scoped against
   [GitHub's webhook documentation](https://docs.github.com/en/webhooks/webhook-events-and-payloads):
   `sub_issues` and `issue_dependencies` (issues), `repository_advisory`,

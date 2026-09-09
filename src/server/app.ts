@@ -3,10 +3,18 @@ import rateLimit from "@fastify/rate-limit";
 import type { Client } from "discord.js";
 import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
 import Fastify, { type FastifyInstance } from "fastify";
-import { type Env, isFullyConfigured, missingConfigKeys } from "../config/env.js";
+import {
+	type Env,
+	isDashboardConfigured,
+	isFullyConfigured,
+	missingConfigKeys,
+	missingDashboardKeys,
+} from "../config/env.js";
 import { githubEventToType } from "../config/events.js";
 import type { Logger } from "../config/logger.js";
 import { decryptSecret } from "../crypto/secrets.js";
+import { registerDashboard } from "../dashboard/routes.js";
+import { notConfiguredPage } from "../dashboard/views.js";
 import type { RepoRepository } from "../db/types.js";
 import { type DispatchContext, dispatchEvent } from "../delivery/dispatch.js";
 import { verifyGitHubSignature } from "../github/verify.js";
@@ -86,6 +94,32 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 			deliveredToday: snapshot.deliveredToday,
 		};
 	});
+
+	// Off unless explicitly enabled AND given OAuth credentials, so a default
+	// deployment serves no dashboard route at all — not even a sign-in page.
+	if (isDashboardConfigured(ctx.env)) {
+		if (ctx.repository && ctx.masterKey && ctx.discord) {
+			await registerDashboard(app, {
+				env: ctx.env,
+				logger: ctx.logger,
+				repository: ctx.repository,
+				masterKey: ctx.masterKey,
+				discord: ctx.discord,
+				renderDefaults: ctx.renderDefaults,
+			});
+			ctx.logger.info({ baseUrl: ctx.env.DASHBOARD_BASE_URL }, "Dashboard enabled");
+		}
+	} else if (ctx.env.DASHBOARD_ENABLED) {
+		// Enabled but incomplete: say why on the route instead of 404ing silently.
+		const missing = missingDashboardKeys(ctx.env);
+		ctx.logger.warn({ missing }, "DASHBOARD_ENABLED is set but the dashboard is not configured");
+		app.get("/dashboard", async (_request, reply) =>
+			reply
+				.code(503)
+				.header("content-type", "text/html; charset=utf-8")
+				.send(notConfiguredPage(missing)),
+		);
+	}
 
 	app.post<{ Params: { trackingId: string } }>(
 		"/webhooks/github/:trackingId",

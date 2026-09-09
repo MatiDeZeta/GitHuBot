@@ -27,6 +27,29 @@ GitHuBot stores encrypted webhook secrets and Discord credentials. Please **do n
 - **Rate limiting depends on `TRUST_PROXY`.** In a proxied deployment without it, the
   per-IP limit degrades to a single shared bucket.
 
+## Dashboard
+
+The optional web dashboard (`DASHBOARD_ENABLED`) is the only part of GitHuBot that
+accepts browser traffic, so it is deliberately narrow:
+
+- **Off by default.** With `DASHBOARD_ENABLED` unset, no `/dashboard` route is
+  registered at all — not even a sign-in page.
+- **Discord OAuth2 only**, scopes `identify guilds`. There is no password and no local
+  account. A user sees only guilds where Discord itself reports `MANAGE_GUILD`, and
+  every repo-scoped request re-checks that list; `DISCORD_ALLOWED_USER_ID`, when set,
+  restricts sign-in to that one account.
+- **Read-only plus two actions.** Pause/resume and send-test are the only writes. The
+  dashboard cannot add or remove repositories, change any setting, or display a webhook
+  secret — those stay behind `/repo` in Discord.
+- **Sessions are signed, not stored**: an HMAC over a JSON payload, keyed by a value
+  derived from `MASTER_KEY` rather than `MASTER_KEY` itself, so a signing flaw cannot
+  become a decryption oracle. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure`
+  whenever the base URL is https.
+- **CSRF is checked on every action** with a per-session token compared in constant
+  time, and the OAuth `state` parameter is checked the same way to prevent login CSRF.
+- **All rendered values are HTML-escaped**, including `lastError`, which can carry
+  attacker-influenced repository text.
+
 ## Supply chain
 
 A bot that holds a Discord token and decrypts webhook secrets is a worthwhile target, and

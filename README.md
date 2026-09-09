@@ -256,6 +256,10 @@ pnpm dev
 | `TRUST_PROXY` | no | `true`/`false` or an IP/CIDR list. Required for per-IP rate limiting behind a proxy |
 | `WEBHOOK_BODY_LIMIT` | no | Max delivery size in bytes. Default `26214400` (GitHub's 25 MiB cap) |
 | `METRICS_TOKEN` | no | When set, `/metrics` requires `Authorization: Bearer <token>` |
+| `DASHBOARD_ENABLED` | no | Serve the optional read-only web dashboard. Default `false` |
+| `DASHBOARD_BASE_URL` | no | Public origin the dashboard is served from (required with the above) |
+| `DISCORD_CLIENT_SECRET` | no | OAuth2 client secret, for dashboard sign-in only |
+| `DASHBOARD_SESSION_HOURS` | no | Dashboard sign-in lifetime. Default `12` |
 | `LOG_LEVEL` | no | Default `info` |
 | `DEFAULT_THEME` | no | `default` · `github` · `neon` · `mono` · `language` |
 | `DEFAULT_DISPLAY_MODE` | no | `detailed` (default) or `compact` |
@@ -277,6 +281,36 @@ Malformed JSON in `EMOJI_OVERRIDES` or `PRESENCE_ROTATION` is treated as unset r
 | `GET /health` | Liveness plus which required env vars are missing (always public) |
 | `GET /metrics` | In-process delivery counters as JSON; gated by `METRICS_TOKEN` when set |
 | `POST /webhooks/github/:trackingId` | Signed GitHub deliveries |
+| `GET /dashboard` | Optional web dashboard; only routed when `DASHBOARD_ENABLED` and configured |
+
+---
+
+## Dashboard (optional)
+
+A read-only web view of delivery status, served by the same process. It is **off by
+default** and serves no route at all until you enable it.
+
+```
+DASHBOARD_ENABLED=true
+DASHBOARD_BASE_URL=https://your-bot.example.com
+DISCORD_CLIENT_SECRET=…
+```
+
+Then add `<DASHBOARD_BASE_URL>/dashboard/auth/callback` as a redirect URI under
+**OAuth2 → Redirects** in the Discord Developer Portal and restart.
+
+Sign-in is Discord OAuth2 with the `identify guilds` scopes — enough to name you and
+list your servers, and nothing else. You see only servers where you hold **Manage
+Server**, the same gate `/repo` uses; if `DISCORD_ALLOWED_USER_ID` is set, only that
+account may sign in at all.
+
+What it can do: view tracked repos, delivery counters, the last error verbatim, event
+selection, filters, routing, mentions and appearance — plus **pause/resume** and **send
+a test message**. What it cannot do: add or remove repositories, change any setting, or
+show a webhook secret. Those stay in Discord, behind `/repo`.
+
+It is server-rendered with no build step, no JavaScript and no CDN — the page works
+offline and adds no dependency to the project.
 
 ---
 

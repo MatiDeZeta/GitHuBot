@@ -79,6 +79,15 @@ const trustProxySchema = z
 		return trimmed;
 	});
 
+/** Accepts the usual spellings operators reach for in a .env file. */
+function booleanish(value: unknown): unknown {
+	const cleared = emptyToUndefined(value);
+	if (typeof cleared !== "string") return cleared;
+	if (/^(true|yes|1|on)$/i.test(cleared)) return true;
+	if (/^(false|no|0|off)$/i.test(cleared)) return false;
+	return cleared;
+}
+
 /** GitHub declines to send webhook payloads above 25 MiB, so nothing larger is a real delivery. */
 const GITHUB_MAX_PAYLOAD_BYTES = 25 * 1024 * 1024;
 
@@ -126,6 +135,19 @@ const envSchema = z.object({
 	METRICS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(16).optional()),
 	LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 	NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+
+	/**
+	 * Optional read-only web dashboard. Off unless explicitly enabled AND given an
+	 * OAuth client secret and a base URL, so a default deployment exposes no new
+	 * surface at all. See `isDashboardConfigured`.
+	 */
+	DASHBOARD_ENABLED: z.preprocess(booleanish, z.boolean().default(false)),
+	/** Public origin the dashboard is served from; the OAuth redirect is derived from it. */
+	DASHBOARD_BASE_URL: z.preprocess(normalizePublicWebhookUrl, z.url().optional()),
+	/** OAuth2 client secret from the Discord Developer Portal. Never sent to the browser. */
+	DISCORD_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+	/** How long a dashboard sign-in lasts before it must be repeated. */
+	DASHBOARD_SESSION_HOURS: z.coerce.number().int().positive().max(720).default(12),
 
 	/** Optional Streaming activity target; the activity is skipped when unset. */
 	PRESENCE_STREAM_URL: z.preprocess(emptyToUndefined, streamUrlSchema.optional()),
@@ -179,6 +201,35 @@ export function isFullyConfigured(env: Env): env is FullyConfiguredEnv {
 	return Boolean(
 		env.DISCORD_TOKEN && env.DISCORD_CLIENT_ID && env.MASTER_KEY && env.PUBLIC_WEBHOOK_URL,
 	);
+}
+
+export type DashboardEnv = Env & {
+	DASHBOARD_BASE_URL: string;
+	DISCORD_CLIENT_SECRET: string;
+	DISCORD_CLIENT_ID: string;
+};
+
+/**
+ * The dashboard needs its own opt-in plus OAuth credentials. Anything missing keeps
+ * it off rather than half-serving it, so a misconfiguration cannot expose a route
+ * that skips sign-in.
+ */
+export function isDashboardConfigured(env: Env): env is DashboardEnv {
+	return Boolean(
+		env.DASHBOARD_ENABLED &&
+			env.DASHBOARD_BASE_URL &&
+			env.DISCORD_CLIENT_SECRET &&
+			env.DISCORD_CLIENT_ID,
+	);
+}
+
+export function missingDashboardKeys(env: Env): string[] {
+	const missing: string[] = [];
+	if (!env.DASHBOARD_ENABLED) missing.push("DASHBOARD_ENABLED");
+	if (!env.DASHBOARD_BASE_URL) missing.push("DASHBOARD_BASE_URL");
+	if (!env.DISCORD_CLIENT_SECRET) missing.push("DISCORD_CLIENT_SECRET");
+	if (!env.DISCORD_CLIENT_ID) missing.push("DISCORD_CLIENT_ID");
+	return missing;
 }
 
 export function missingConfigKeys(env: Env): string[] {
