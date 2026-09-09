@@ -11,26 +11,83 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# A compromised action or dependency inherits whatever the job token can do.
+# Read-only by default; a job that needs more must ask for it explicitly.
+permissions:
+  contents: read
+
 jobs:
-  check:
+  # Runs first and gates everything else: if the dependency graph is not
+  # trustworthy, there is no point linting or testing what it produced.
+  supply-chain:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions are pinned to immutable commit SHAs — a tag like @v4
+      # is mutable and can be repointed at malicious code by whoever owns the repo.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.15.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # --frozen-lockfile fails if package.json and the lockfile disagree, so a
+      # dependency cannot be introduced without a reviewed lockfile change.
+      # This also runs pnpm's minimumReleaseAge check over every lockfile entry.
+      - name: Install (frozen lockfile + release-age policy)
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level moderate
+
+      # Recomputes the hash of every package in the store and fails if any file
+      # was mutated after extraction. esbuild's postinstall legitimately replaces
+      # its own shim, so that one case is allowed only after confirming the
+      # replacement matches the verified @esbuild/<platform> binary.
+      - name: Verify package integrity
+        run: node scripts/check-store-integrity.mjs
+
+      # Lifecycle scripts are the main install-time malware vector. pnpm blocks
+      # them unless allow-listed in pnpm-workspace.yaml; fail if that list grows
+      # without someone noticing.
+      - name: Check no new build scripts were allow-listed
+        run: |
+          EXPECTED="better-sqlite3 esbuild"
+          ACTUAL=$(node -e "
+            const fs=require('fs');
+            const y=fs.readFileSync('pnpm-workspace.yaml','utf8');
+            const m=y.match(/allowBuilds:\n((?:\s+\S+:.*\n)+)/);
+            if(!m){console.log('');process.exit(0)}
+            console.log(m[1].trim().split('\n').map(l=>l.trim().split(':')[0]).sort().join(' '));
+          ")
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::allowBuilds changed. Expected '$EXPECTED', got '$ACTUAL'."
+            echo "Each entry grants arbitrary code execution at install time — review deliberately."
+            exit 1
+          fi
+          echo "allowBuilds unchanged: $ACTUAL"
+
+  check:
+    runs-on: ubuntu-latest
+    needs: supply-chain
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.15.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Audit dependencies
-        run: pnpm audit --audit-level moderate
 
       - name: Lint
         run: pnpm lint
@@ -48,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Build Docker image
         run: docker build -f docker/Dockerfile -t githubot:ci .

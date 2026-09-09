@@ -27,6 +27,37 @@ GitHuBot stores encrypted webhook secrets and Discord credentials. Please **do n
 - **Rate limiting depends on `TRUST_PROXY`.** In a proxied deployment without it, the
   per-IP limit degrades to a single shared bucket.
 
+## Supply chain
+
+A bot that holds a Discord token and decrypts webhook secrets is a worthwhile target, and
+the realistic path in is a dependency rather than this code. The controls below are all
+enforced in CI, so they fail a pull request rather than relying on anyone remembering.
+
+| Control | Where | What it stops |
+| --- | --- | --- |
+| `minimumReleaseAge: 4320` (72h) | `pnpm-workspace.yaml` | A version published in the last 72 hours cannot be installed — including one already written into the lockfile. Compromised releases are typically yanked within hours, so this skips the exposure window entirely. |
+| `allowBuilds` allow-list | `pnpm-workspace.yaml` | Install-time lifecycle scripts are the main malware execution path. pnpm blocks them by default; only `better-sqlite3` and `esbuild` may run, both because they link a native binary. CI fails if that list changes. |
+| Committed `pnpm-lock.yaml` + `--frozen-lockfile` | CI, `docker/Dockerfile` | No dependency can enter the tree without a reviewed lockfile diff. |
+| `pnpm audit --audit-level moderate` | CI | Fails the build on known advisories. |
+| `pnpm store status` | CI | Recomputes every package's hash and reports files mutated after extraction. |
+| Actions pinned by commit SHA | `.github/workflows/ci.yml` | A tag like `@v4` is mutable and can be repointed at malicious code; a SHA cannot. |
+| Base image pinned by digest | `docker/Dockerfile` | A rebuild cannot silently pull a different `node:22-alpine`. |
+| Dependabot (npm, actions, docker) | `.github/dependabot.yml` | Updates arrive as reviewable PRs, and the SHA/digest pins stay current instead of rotting. |
+
+Run the same checks locally with `pnpm audit:supply-chain`.
+
+**Expected finding:** `pnpm store status` always reports `esbuild` as modified. That is
+esbuild's own `postinstall` replacing its JS shim with the platform binary — the result is
+byte-identical to the binary in `@esbuild/linux-x64`, whose hash pnpm verifies. Any *other*
+package reported as modified is not expected and should be investigated.
+
+**Emergency override.** For a same-day security patch you have actually read, bypass the
+cooldown per command rather than lowering it permanently:
+
+```bash
+pnpm add <pkg>@<version> --config.minimumReleaseAge=0
+```
+
 ## Out of scope (by design)
 
 - Asking the bot to hold a `GITHUB_TOKEN` or call the GitHub API — that is intentionally unsupported.

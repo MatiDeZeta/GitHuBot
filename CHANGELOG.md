@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security — supply chain
+
+Audited the installed tree for malware first: no indicators of compromise, every direct
+dependency resolves to its genuine upstream repository, and the only packages permitted to
+run install scripts are `better-sqlite3` and `esbuild`. `pnpm store status` flags esbuild
+as modified; that is its own `postinstall` swapping its JS shim for the platform binary,
+verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
+
+- **`minimumReleaseAge: 4320`** — nothing published in the last 72 hours can be installed,
+  including entries already written into the lockfile, so a compromised release cannot be
+  smuggled in via a locally crafted lockfile. Set to 72h rather than a week because
+  `fastify@5.12.3` (the CVE fix above) is only 4 days old and a wider gate would force a
+  downgrade back into those CVEs.
+- **`allowBuilds` is now guarded in CI** — install-time lifecycle scripts are the main
+  malware execution vector; the build fails if that allow-list grows.
+- **GitHub Actions pinned to commit SHAs** and **the Docker base image pinned by digest** —
+  `@v4` and `:22-alpine` are mutable references that can be repointed at other code.
+- **Workflow token defaults to `contents: read`**, so a compromised action inherits as
+  little as possible.
+- **`pnpm store status` runs in CI** to catch packages mutated after extraction.
+- **Dependabot** configured for npm, github-actions and docker, so updates are reviewed
+  PRs and the SHA/digest pins do not rot.
+- **`pnpm audit:supply-chain`** runs the same checks locally.
+
 ### Security
 
 - **Delivery dedupe is now atomic.** `tryRecordDelivery` used a `SELECT` followed by a

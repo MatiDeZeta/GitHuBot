@@ -1,4 +1,35 @@
 # Single-package repo — settings live here for pnpm 11+
+
+# ------------------------------------------------------------ supply chain --
+
+# Refuse any version published less than 72 hours ago (checked on resolution AND
+# against every existing lockfile entry, so a lockfile someone crafted locally
+# cannot smuggle a fresh package past CI).
+#
+# Nearly every npm compromise — a stolen maintainer token publishing a malicious
+# patch — is spotted and yanked within hours. A cooldown means this project never
+# installs inside that window: it trades "newest" for "has had time to be looked
+# at", which is the right trade for a bot holding a Discord token and encrypted
+# webhook secrets.
+#
+# Why 72h and not longer: the window has to clear the newest thing we legitimately
+# need. `fastify@5.12.3` is the CVE-2026-16732 / CVE-2026-18504 fix and was
+# published 4 days ago, so a 7-day gate would force a downgrade back into those
+# CVEs. 72h still blocks the realistic attack window without that regression.
+# Raise it once the tree ages if you want a wider margin.
+#
+# For a genuine same-day security patch you have actually read, bypass per-command
+# rather than lowering this permanently:
+#   pnpm add <pkg>@<version> --config.minimumReleaseAge=0
+minimumReleaseAge: 4320
+
+# Lifecycle scripts are the primary malware execution vector, and pnpm blocks
+# them by default. Only these two are allowed to run, both because they must
+# fetch/link a native binary:
+#   better-sqlite3 — compiles or downloads the SQLite native addon
+#   esbuild        — replaces its JS shim with the platform binary
+# Adding an entry here grants arbitrary code execution at install time. Don't,
+# unless the package genuinely ships a native component.
 allowBuilds:
   better-sqlite3: true
   esbuild: true

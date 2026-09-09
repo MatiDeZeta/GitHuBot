@@ -17,6 +17,7 @@
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
+		"audit:supply-chain": "pnpm install --frozen-lockfile && pnpm audit --audit-level moderate && node scripts/check-store-integrity.mjs",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "tsx src/db/migrate.ts"
 	},

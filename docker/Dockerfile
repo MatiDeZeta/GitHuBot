@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS base
+# Base images are pinned by digest, not by the mutable `22-alpine` tag, so a
+# rebuild cannot silently pick up a different image. Dependabot's docker
+# ecosystem keeps the digest current.
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS base
 RUN apk add --no-cache libc6-compat python3 make g++ \
 	&& corepack enable \
 	&& corepack prepare pnpm@11.15.1 --activate
@@ -18,7 +21,7 @@ COPY drizzle ./drizzle
 RUN pnpm build \
 	&& pnpm prune --prod
 
-FROM node:22-alpine AS runtime
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runtime
 RUN apk add --no-cache libc6-compat wget su-exec \
 	&& addgroup -S githubot && adduser -S githubot -G githubot
 WORKDIR /app

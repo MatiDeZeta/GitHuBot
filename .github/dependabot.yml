@@ -1,0 +1,45 @@
+version: 2
+
+updates:
+  # Dependency updates arrive as reviewable PRs. Combined with the committed
+  # lockfile and CI's --frozen-lockfile, that means no dependency can change
+  # without a diff someone approved.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    groups:
+      # Patch/minor noise lands as one reviewable PR instead of a dozen.
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        applies-to: version-updates
+        dependency-type: development
+        update-types: [minor, patch]
+      # Security fixes are grouped separately so they are never buried in
+      # routine version bumps.
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    labels: [dependencies]
+
+  # Actions are pinned to commit SHAs in the workflow; Dependabot understands
+  # that form and keeps the trailing "# v4" comment in step with the SHA it
+  # bumps to. Without this the pins would silently rot.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: [dependencies, ci]
+
+  # The Dockerfile pins node by digest; without this the pin would go stale and
+  # stop receiving base-image security updates.
+  - package-ecosystem: docker
+    directory: "/docker"
+    schedule:
+      interval: weekly
+    labels: [dependencies, docker]
