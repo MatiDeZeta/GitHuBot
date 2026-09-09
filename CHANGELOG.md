@@ -5,6 +5,17 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security — supply chain
+
+- **Dependabot now honours a 3-day cooldown** on npm, actions and docker version
+  updates, matching `minimumReleaseAge`. Without it Dependabot would raise PRs for
+  releases published minutes earlier — precisely the window the cooldown exists to
+  skip. CI already rejected such a PR, since pnpm enforces the policy against the
+  lockfile, but not raising it is better than relying on the backstop. Security
+  updates deliberately bypass the cooldown so CVE fixes still arrive immediately.
+
 ## [1.2.0] — 2026-09-09
 
 ### Security — supply chain

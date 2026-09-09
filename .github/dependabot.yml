@@ -10,6 +10,14 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     versioning-strategy: increase
+    # Dependabot does not inspect package contents — it only bumps versions — so
+    # without this it would happily open a PR for a release published minutes
+    # ago, which is exactly the window minimumReleaseAge exists to skip. CI would
+    # reject that PR (pnpm enforces the policy against the lockfile), but it is
+    # better not to raise it at all. Kept at 3 days to match minimumReleaseAge.
+    # Security updates deliberately ignore cooldown, so CVE fixes still arrive fast.
+    cooldown:
+      default-days: 3
     groups:
       # Patch/minor noise lands as one reviewable PR instead of a dozen.
       production-minor-patch:
@@ -34,6 +42,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     labels: [dependencies, ci]
 
   # The Dockerfile pins node by digest; without this the pin would go stale and
@@ -42,4 +52,6 @@ updates:
     directory: "/docker"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     labels: [dependencies, docker]
