@@ -241,6 +241,32 @@ export const issueCommentPayloadSchema = withAction
 	})
 	.loose();
 
+/** Shared by the sub-issue and dependency events, which link two issues together. */
+const issueRefSchema = z
+	.object({
+		html_url: z.url(),
+		number: z.number(),
+		title: z.string(),
+		repository: repositorySchema.optional(),
+	})
+	.loose();
+
+export const subIssuesPayloadSchema = withAction
+	.extend({
+		parent_issue: issueRefSchema.optional(),
+		sub_issue: issueRefSchema.optional(),
+		parent_issue_repo: repositorySchema.optional(),
+	})
+	.loose();
+
+export const issueDependenciesPayloadSchema = withAction
+	.extend({
+		blocked_issue: issueRefSchema.optional(),
+		blocking_issue: issueRefSchema.optional(),
+		blocking_issue_repo: repositorySchema.optional(),
+	})
+	.loose();
+
 export const labelPayloadSchema = withAction
 	.extend({
 		label: labelSchema,
@@ -316,10 +342,7 @@ export const checkRunPayloadSchema = withAction
 					})
 					.loose()
 					.optional(),
-				check_suite: z
-					.object({ head_branch: z.string().nullable().optional() })
-					.loose()
-					.optional(),
+				check_suite: z.object({ head_branch: z.string().nullable().optional() }).loose().optional(),
 			})
 			.loose(),
 	})
@@ -466,9 +489,7 @@ const discussionSchema = z
 	})
 	.loose();
 
-export const discussionPayloadSchema = withAction
-	.extend({ discussion: discussionSchema })
-	.loose();
+export const discussionPayloadSchema = withAction.extend({ discussion: discussionSchema }).loose();
 
 export const discussionCommentPayloadSchema = withAction
 	.extend({
@@ -555,10 +576,7 @@ export const secretScanningAlertPayloadSchema = withAction
 				resolution: z.string().nullable().optional(),
 			})
 			.loose(),
-		location: z
-			.object({ type: z.string().optional() })
-			.loose()
-			.optional(),
+		location: z.object({ type: z.string().optional() }).loose().optional(),
 	})
 	.loose();
 
@@ -570,9 +588,7 @@ export const securityAdvisoryPayloadSchema = withAction
 				summary: z.string().optional(),
 				severity: z.string().optional(),
 				cve_id: z.string().nullable().optional(),
-				references: z
-					.array(z.object({ url: z.string().optional() }).loose())
-					.optional(),
+				references: z.array(z.object({ url: z.string().optional() }).loose()).optional(),
 			})
 			.loose(),
 	})
@@ -584,6 +600,57 @@ export const branchProtectionRulePayloadSchema = withAction
 			.object({
 				name: z.string().optional(),
 				id: z.number().optional(),
+			})
+			.loose()
+			.optional(),
+	})
+	.loose();
+
+/**
+ * `security_advisory` is a GitHub-App-only event, so a repo webhook never receives it.
+ * `repository_advisory` is the repository-scoped equivalent.
+ */
+export const repositoryAdvisoryPayloadSchema = withAction
+	.extend({
+		repository_advisory: z
+			.object({
+				ghsa_id: z.string().optional(),
+				cve_id: z.string().nullable().optional(),
+				summary: z.string().optional(),
+				severity: z.string().nullable().optional(),
+				state: z.string().optional(),
+				html_url: z.url().optional(),
+			})
+			.loose(),
+	})
+	.loose();
+
+export const repositoryRulesetPayloadSchema = withAction
+	.extend({
+		repository_ruleset: z
+			.object({
+				id: z.number().optional(),
+				name: z.string().optional(),
+				target: z.string().optional(),
+				enforcement: z.string().optional(),
+				source_type: z.string().optional(),
+				source: z.string().optional(),
+			})
+			.loose(),
+	})
+	.loose();
+
+/** Carries no `action`; the change itself is the event. */
+export const securityAndAnalysisPayloadSchema = baseEventSchema
+	.extend({
+		changes: z
+			.object({
+				from: z
+					.object({
+						security_and_analysis: z.record(z.string(), z.unknown()).optional(),
+					})
+					.loose()
+					.optional(),
 			})
 			.loose()
 			.optional(),
@@ -730,13 +797,25 @@ export const pageBuildPayloadSchema = baseEventSchema
 			.object({
 				status: z.string().optional(),
 				url: z.string().optional(),
-				error: z
-					.object({ message: z.string().nullable().optional() })
-					.loose()
-					.optional(),
+				error: z.object({ message: z.string().nullable().optional() }).loose().optional(),
 				pusher: actorSchema.optional(),
 			})
 			.loose(),
+	})
+	.loose();
+
+const customPropertyValueSchema = z
+	.object({
+		property_name: z.string(),
+		value: z.union([z.string(), z.array(z.string()), z.null()]).optional(),
+	})
+	.loose();
+
+export const customPropertyValuesPayloadSchema = baseEventSchema
+	.extend({
+		action: z.string().optional(),
+		new_property_values: z.array(customPropertyValueSchema).optional(),
+		old_property_values: z.array(customPropertyValueSchema).optional(),
 	})
 	.loose();
 
@@ -749,15 +828,13 @@ export type CreateDeletePayload = z.infer<typeof createDeletePayloadSchema>;
 export type CommitCommentPayload = z.infer<typeof commitCommentPayloadSchema>;
 export type PullRequestPayload = z.infer<typeof pullRequestPayloadSchema>;
 export type PullRequestReviewPayload = z.infer<typeof pullRequestReviewPayloadSchema>;
-export type PullRequestReviewCommentPayload = z.infer<
-	typeof pullRequestReviewCommentPayloadSchema
->;
-export type PullRequestReviewThreadPayload = z.infer<
-	typeof pullRequestReviewThreadPayloadSchema
->;
+export type PullRequestReviewCommentPayload = z.infer<typeof pullRequestReviewCommentPayloadSchema>;
+export type PullRequestReviewThreadPayload = z.infer<typeof pullRequestReviewThreadPayloadSchema>;
 export type IssuesPayload = z.infer<typeof issuesPayloadSchema>;
 export type IssueCommentPayload = z.infer<typeof issueCommentPayloadSchema>;
 export type LabelPayload = z.infer<typeof labelPayloadSchema>;
+export type SubIssuesPayload = z.infer<typeof subIssuesPayloadSchema>;
+export type IssueDependenciesPayload = z.infer<typeof issueDependenciesPayloadSchema>;
 export type MilestonePayload = z.infer<typeof milestonePayloadSchema>;
 export type WorkflowRunPayload = z.infer<typeof workflowRunPayloadSchema>;
 export type WorkflowJobPayload = z.infer<typeof workflowJobPayloadSchema>;
@@ -774,6 +851,9 @@ export type DependabotAlertPayload = z.infer<typeof dependabotAlertPayloadSchema
 export type CodeScanningAlertPayload = z.infer<typeof codeScanningAlertPayloadSchema>;
 export type SecretScanningAlertPayload = z.infer<typeof secretScanningAlertPayloadSchema>;
 export type SecurityAdvisoryPayload = z.infer<typeof securityAdvisoryPayloadSchema>;
+export type RepositoryAdvisoryPayload = z.infer<typeof repositoryAdvisoryPayloadSchema>;
+export type RepositoryRulesetPayload = z.infer<typeof repositoryRulesetPayloadSchema>;
+export type SecurityAndAnalysisPayload = z.infer<typeof securityAndAnalysisPayloadSchema>;
 export type BranchProtectionRulePayload = z.infer<typeof branchProtectionRulePayloadSchema>;
 export type ForkPayload = z.infer<typeof forkPayloadSchema>;
 export type StarPayload = z.infer<typeof starPayloadSchema>;
@@ -786,3 +866,4 @@ export type ProjectsV2ItemPayload = z.infer<typeof projectsV2ItemPayloadSchema>;
 export type DeployKeyPayload = z.infer<typeof deployKeyPayloadSchema>;
 export type MetaPayload = z.infer<typeof metaPayloadSchema>;
 export type PageBuildPayload = z.infer<typeof pageBuildPayloadSchema>;
+export type CustomPropertyValuesPayload = z.infer<typeof customPropertyValuesPayloadSchema>;

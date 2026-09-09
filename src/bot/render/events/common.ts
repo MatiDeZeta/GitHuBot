@@ -1,6 +1,6 @@
 import type { Actor, Repository } from "../../../github/payloads.js";
-import { tx, type I18nText } from "../../../i18n/index.js";
-import { escapeMarkdown, truncate } from "../blocks.js";
+import { type I18nText, tx } from "../../../i18n/index.js";
+import { escapeMarkdown, neutralizeBodyMarkdown, truncate } from "../blocks.js";
 import type { EventTemplate, TemplateLink } from "../template.js";
 
 export interface RepoBits {
@@ -39,7 +39,7 @@ export function code(value: string): string {
 export function quote(body: string | null | undefined, max = 600): string | undefined {
 	const trimmed = body?.trim();
 	if (!trimmed) return undefined;
-	const clipped = truncate(trimmed, max);
+	const clipped = neutralizeBodyMarkdown(truncate(trimmed, max));
 	return clipped
 		.split(/\r?\n/)
 		.map((line) => `> ${line}`)

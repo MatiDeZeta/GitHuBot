@@ -1,14 +1,9 @@
-import type {
-	DiscussionCommentPayload,
-	DiscussionPayload,
-} from "../../../github/payloads.js";
+import type { DiscussionCommentPayload, DiscussionPayload } from "../../../github/payloads.js";
 import { tx } from "../../../i18n/index.js";
 import type { EventTemplate, TemplateField } from "../template.js";
 import { actorBits, code, links, numbered, quote, repoBits, repositoryLink } from "./common.js";
 
-function categoryField(
-	category: { name?: string; emoji?: string } | undefined,
-): TemplateField[] {
+function categoryField(category: { name?: string; emoji?: string } | undefined): TemplateField[] {
 	if (!category?.name) return [];
 	const label = category.emoji ? `${category.emoji} ${category.name}` : category.name;
 	return [{ label: tx("field.category"), value: code(label), secondary: true }];
@@ -64,9 +59,7 @@ export function formatDiscussion(payload: DiscussionPayload): EventTemplate | nu
 	};
 }
 
-export function formatDiscussionComment(
-	payload: DiscussionCommentPayload,
-): EventTemplate | null {
+export function formatDiscussionComment(payload: DiscussionCommentPayload): EventTemplate | null {
 	if (payload.action !== "created") return null;
 	const bits = repoBits(payload.repository);
 

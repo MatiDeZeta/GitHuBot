@@ -1,17 +1,17 @@
 import {
-	MessageFlags,
-	TextDisplayBuilder,
+	type APIMessageTopLevelComponent,
 	type AutocompleteInteraction,
 	type InteractionEditReplyOptions,
 	type InteractionReplyOptions,
 	type InteractionUpdateOptions,
 	type JSONEncodable,
-	type APIMessageTopLevelComponent,
+	MessageFlags,
 	type RepliableInteraction,
+	TextDisplayBuilder,
 } from "discord.js";
 import { repoSlugSchema } from "../../config/events.js";
 import type { GuildSettings, TrackedRepo } from "../../db/types.js";
-import { resolveLocale, t, type AppLocale, type TranslationKey } from "../../i18n/index.js";
+import { type AppLocale, resolveLocale, type TranslationKey, t } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
 
 type TopLevel = JSONEncodable<APIMessageTopLevelComponent>;
@@ -104,7 +104,9 @@ export function parseRepoSlug(raw: string): { error: string } | { value: ParsedR
 /** Resolves the `repository` option and loads the row, replying on failure. */
 export async function requireTrackedRepo(
 	ctx: BotContext,
-	interaction: RepliableInteraction & { options: { getString(name: string, required: true): string } },
+	interaction: RepliableInteraction & {
+		options: { getString(name: string, required: true): string };
+	},
 	locale: AppLocale,
 ): Promise<TrackedRepo | null> {
 	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
@@ -130,7 +132,11 @@ export function slugOf(tracked: TrackedRepo): string {
 	return `${tracked.owner}/${tracked.repo}`;
 }
 
-export function line(locale: AppLocale, key: TranslationKey, params?: Record<string, string | number>): string {
+export function line(
+	locale: AppLocale,
+	key: TranslationKey,
+	params?: Record<string, string | number>,
+): string {
 	return t(locale, key, params);
 }
 

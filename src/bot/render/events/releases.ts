@@ -1,7 +1,7 @@
 import type { PackagePayload, ReleasePayload } from "../../../github/payloads.js";
 import { tx } from "../../../i18n/index.js";
 import type { EventTemplate, TemplateField, TemplateImage } from "../template.js";
-import { actorBits, code, links, repoBits, repositoryLink, titleText, quote } from "./common.js";
+import { actorBits, code, links, quote, repoBits, repositoryLink, titleText } from "./common.js";
 
 const IMAGE_PATTERN = /!\[[^\]]*\]\((https?:\/\/[^\s)]+\.(?:png|jpe?g|gif|webp))\)/gi;
 

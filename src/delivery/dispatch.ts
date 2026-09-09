@@ -1,13 +1,13 @@
-import { TextDisplayBuilder, type Client, type MessageCreateOptions } from "discord.js";
-import type { EventType } from "../config/events.js";
-import type { Logger } from "../config/logger.js";
+import { type Client, type MessageCreateOptions, TextDisplayBuilder } from "discord.js";
 import { buildEventTemplate } from "../bot/render/events/index.js";
-import { renderTemplate, type RenderOptions } from "../bot/render/render.js";
+import { type RenderOptions, renderTemplate } from "../bot/render/render.js";
 import type { EventTemplate } from "../bot/render/template.js";
 import { DEFAULT_DISPLAY_MODE } from "../bot/render/template.js";
 import { DEFAULT_THEME } from "../bot/render/theme.js";
+import type { EventType } from "../config/events.js";
+import type { Logger } from "../config/logger.js";
 import type { GuildSettings, RepoRepository, TrackedRepo } from "../db/types.js";
-import { DEFAULT_LOCALE, resolveText, type AppLocale } from "../i18n/index.js";
+import { type AppLocale, DEFAULT_LOCALE, resolveText } from "../i18n/index.js";
 import { metrics } from "../metrics.js";
 import { applyFilters, type FilterReason } from "./filters.js";
 import { planMentions } from "./mentions.js";

@@ -46,11 +46,7 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 		},
 
 		async getGuildSettings(guildId): Promise<GuildSettings | null> {
-			const row = db
-				.select()
-				.from(schema.guilds)
-				.where(eq(schema.guilds.guildId, guildId))
-				.get();
+			const row = db.select().from(schema.guilds).where(eq(schema.guilds.guildId, guildId)).get();
 			return row ? mapGuildRow(row) : null;
 		},
 
@@ -59,9 +55,7 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 			db.update(schema.guilds)
 				.set({
 					...(settings.locale !== undefined ? { locale: settings.locale } : {}),
-					...(settings.defaultTheme !== undefined
-						? { defaultTheme: settings.defaultTheme }
-						: {}),
+					...(settings.defaultTheme !== undefined ? { defaultTheme: settings.defaultTheme } : {}),
 					...(settings.defaultDisplayMode !== undefined
 						? { defaultDisplayMode: settings.defaultDisplayMode }
 						: {}),
@@ -196,14 +190,15 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 		},
 
 		async tryRecordDelivery(deliveryId, trackingId) {
-			const existing = db
-				.select()
-				.from(schema.deliveries)
-				.where(eq(schema.deliveries.deliveryId, deliveryId))
+			// Single atomic statement: a concurrent redelivery of the same X-GitHub-Delivery
+			// loses the insert race and reads back as a duplicate instead of throwing.
+			const row = db
+				.insert(schema.deliveries)
+				.values({ deliveryId, trackingId })
+				.onConflictDoNothing()
+				.returning({ deliveryId: schema.deliveries.deliveryId })
 				.get();
-			if (existing) return false;
-			db.insert(schema.deliveries).values({ deliveryId, trackingId }).run();
-			return true;
+			return row !== undefined;
 		},
 
 		async recordDeliveryResult(result: DeliveryResult) {

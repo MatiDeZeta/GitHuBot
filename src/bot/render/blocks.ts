@@ -1,8 +1,10 @@
 import {
 	ActionRowBuilder,
+	type APIMessageTopLevelComponent,
 	ButtonBuilder,
 	ButtonStyle,
 	ContainerBuilder,
+	type JSONEncodable,
 	MediaGalleryBuilder,
 	MediaGalleryItemBuilder,
 	MessageFlags,
@@ -11,8 +13,6 @@ import {
 	SeparatorSpacingSize,
 	TextDisplayBuilder,
 	ThumbnailBuilder,
-	type APIMessageTopLevelComponent,
-	type JSONEncodable,
 } from "discord.js";
 
 export type V2Component = JSONEncodable<APIMessageTopLevelComponent>;
@@ -44,10 +44,7 @@ export function separator(divider = true, large = false): SeparatorBuilder {
 }
 
 export function linkButton(label: string, url: string): ButtonBuilder {
-	return new ButtonBuilder()
-		.setStyle(ButtonStyle.Link)
-		.setLabel(truncate(label, 80))
-		.setURL(url);
+	return new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(truncate(label, 80)).setURL(url);
 }
 
 export function row<T extends ButtonBuilder>(...buttons: T[]): ActionRowBuilder<T> {
@@ -104,9 +101,31 @@ export function firstLine(value: string): string {
 	return line?.trim() ?? "";
 }
 
+/**
+ * Zero-width and bidi-override characters render as nothing but let a crafted GitHub
+ * login or title visually impersonate another one.
+ */
+const INVISIBLE_CHARS = /[­​-‏‪-‮⁠-⁤⁦-⁯﻿]/g;
+
+export function stripInvisible(value: string): string {
+	return value.replace(INVISIBLE_CHARS, "");
+}
+
 /** Escapes Discord markdown so issue titles cannot break the layout. */
 export function escapeMarkdown(value: string): string {
-	return value.replace(/([*_`~|\\>])/g, "\\$1");
+	return stripInvisible(value).replace(/([*_`~|\\>])/g, "\\$1");
+}
+
+/**
+ * Bodies keep most formatting (code blocks, emphasis) because that is the point of
+ * quoting them. Two constructs are escaped: `[label](url)`, which lets untrusted text
+ * put attacker-chosen words on an attacker-chosen link, and a leading `#`, which
+ * renders as a heading even inside a blockquote and can impersonate our own headings.
+ */
+export function neutralizeBodyMarkdown(value: string): string {
+	return stripInvisible(value)
+		.replace(/([[\]])/g, "\\$1")
+		.replace(/^(\s*)(#{1,3})(\s)/gm, "$1\\$2$3");
 }
 
 /** Only http(s) URLs are accepted by Discord's media components. */

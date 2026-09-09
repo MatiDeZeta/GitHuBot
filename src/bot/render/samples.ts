@@ -1,5 +1,5 @@
 import { EVENT_META, type EventType } from "../../config/events.js";
-import { tx, type TranslationKey } from "../../i18n/index.js";
+import { type TranslationKey, tx } from "../../i18n/index.js";
 import type { EventTemplate } from "./template.js";
 
 /** Accent chosen so a test message looks like the real thing for that event. */

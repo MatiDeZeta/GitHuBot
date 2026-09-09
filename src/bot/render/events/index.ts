@@ -6,6 +6,7 @@ import {
 	codeScanningAlertPayloadSchema,
 	commitCommentPayloadSchema,
 	createDeletePayloadSchema,
+	customPropertyValuesPayloadSchema,
 	dependabotAlertPayloadSchema,
 	deployKeyPayloadSchema,
 	deploymentPayloadSchema,
@@ -15,6 +16,7 @@ import {
 	forkPayloadSchema,
 	gollumPayloadSchema,
 	issueCommentPayloadSchema,
+	issueDependenciesPayloadSchema,
 	issuesPayloadSchema,
 	labelPayloadSchema,
 	memberPayloadSchema,
@@ -30,16 +32,29 @@ import {
 	pullRequestReviewThreadPayloadSchema,
 	pushPayloadSchema,
 	releasePayloadSchema,
+	repositoryAdvisoryPayloadSchema,
 	repositoryPayloadSchema,
+	repositoryRulesetPayloadSchema,
 	secretScanningAlertPayloadSchema,
 	securityAdvisoryPayloadSchema,
+	securityAndAnalysisPayloadSchema,
 	sponsorshipPayloadSchema,
 	starPayloadSchema,
 	statusPayloadSchema,
+	subIssuesPayloadSchema,
 	workflowJobPayloadSchema,
 	workflowRunPayloadSchema,
 } from "../../../github/payloads.js";
 import type { EventTemplate } from "../template.js";
+import {
+	formatCheckRun,
+	formatCheckSuite,
+	formatDeployment,
+	formatDeploymentStatus,
+	formatStatus,
+	formatWorkflowJob,
+	formatWorkflowRun,
+} from "./cicd.js";
 import { formatCommitComment, formatCreate, formatDelete, formatPush } from "./code.js";
 import {
 	formatFork,
@@ -50,16 +65,15 @@ import {
 } from "./community.js";
 import { formatDiscussion, formatDiscussionComment } from "./discussions.js";
 import {
-	formatCheckRun,
-	formatCheckSuite,
-	formatDeployment,
-	formatDeploymentStatus,
-	formatStatus,
-	formatWorkflowJob,
-	formatWorkflowRun,
-} from "./cicd.js";
-import { formatIssueComment, formatIssues, formatLabel, formatMilestone } from "./issues.js";
+	formatIssueComment,
+	formatIssueDependencies,
+	formatIssues,
+	formatLabel,
+	formatMilestone,
+	formatSubIssues,
+} from "./issues.js";
 import {
+	formatCustomPropertyValues,
 	formatDeployKey,
 	formatGollum,
 	formatMeta,
@@ -79,9 +93,12 @@ import {
 	formatBranchProtectionRule,
 	formatCodeScanningAlert,
 	formatDependabotAlert,
+	formatRepositoryAdvisory,
+	formatRepositoryRuleset,
 	formatSecretScanningAlert,
 	formatSecretScanningAlertLocation,
 	formatSecurityAdvisory,
+	formatSecurityAndAnalysis,
 } from "./security.js";
 
 /** Parses a raw webhook body, then formats it. Returns null to skip posting. */
@@ -118,6 +135,8 @@ export const EVENT_BUILDERS: Record<EventType, EventBuilder> = {
 	issue_comment: build(issueCommentPayloadSchema, formatIssueComment),
 	label: build(labelPayloadSchema, formatLabel),
 	milestone: build(milestonePayloadSchema, formatMilestone),
+	sub_issues: build(subIssuesPayloadSchema, formatSubIssues),
+	issue_dependencies: build(issueDependenciesPayloadSchema, formatIssueDependencies),
 
 	workflow_run: build(workflowRunPayloadSchema, formatWorkflowRun),
 	workflow_job: build(workflowJobPayloadSchema, formatWorkflowJob),
@@ -142,6 +161,9 @@ export const EVENT_BUILDERS: Record<EventType, EventBuilder> = {
 		formatSecretScanningAlertLocation,
 	),
 	security_advisory: build(securityAdvisoryPayloadSchema, formatSecurityAdvisory),
+	repository_advisory: build(repositoryAdvisoryPayloadSchema, formatRepositoryAdvisory),
+	repository_ruleset: build(repositoryRulesetPayloadSchema, formatRepositoryRuleset),
+	security_and_analysis: build(securityAndAnalysisPayloadSchema, formatSecurityAndAnalysis),
 	branch_protection_rule: build(branchProtectionRulePayloadSchema, formatBranchProtectionRule),
 	branch_protection_configuration: build(
 		branchProtectionRulePayloadSchema,
@@ -160,11 +182,9 @@ export const EVENT_BUILDERS: Record<EventType, EventBuilder> = {
 	deploy_key: build(deployKeyPayloadSchema, formatDeployKey),
 	meta: build(metaPayloadSchema, formatMeta),
 	page_build: build(pageBuildPayloadSchema, formatPageBuild),
+	custom_property_values: build(customPropertyValuesPayloadSchema, formatCustomPropertyValues),
 };
 
-export function buildEventTemplate(
-	eventType: EventType,
-	payload: unknown,
-): EventTemplate | null {
+export function buildEventTemplate(eventType: EventType, payload: unknown): EventTemplate | null {
 	return EVENT_BUILDERS[eventType](payload);
 }

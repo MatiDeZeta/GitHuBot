@@ -1,10 +1,10 @@
 import {
 	ChannelType,
+	type ChatInputCommandInteraction,
 	InteractionContextType,
 	MessageFlags,
 	PermissionFlagsBits,
 	SlashCommandBuilder,
-	type ChatInputCommandInteraction,
 	type SlashCommandSubcommandBuilder,
 } from "discord.js";
 import { DEFAULT_ENABLED_EVENTS, repoSlugSchema } from "../../config/events.js";
@@ -14,11 +14,10 @@ import {
 	generateTrackingId,
 	generateWebhookSecret,
 } from "../../crypto/secrets.js";
-import { localizations, t, type AppLocale, type TranslationKey } from "../../i18n/index.js";
-import { THEME_IDS } from "../render/theme.js";
-import { DISPLAY_MODES } from "../render/template.js";
+import { type AppLocale, localizations, type TranslationKey, t } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
-import { categoryView } from "./repo-events.js";
+import { DISPLAY_MODES } from "../render/template.js";
+import { THEME_IDS } from "../render/theme.js";
 import {
 	CATEGORY_CHOICES,
 	handleHealth,
@@ -32,6 +31,7 @@ import {
 	showFiltersModal,
 	summarizeFilters,
 } from "./repo-config.js";
+import { categoryView } from "./repo-events.js";
 import {
 	ephemeralText,
 	ephemeralTextEdit,
@@ -77,18 +77,21 @@ export const repoCommand = {
 		.setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 		.setContexts(InteractionContextType.Guild)
 		.addSubcommand((sub) =>
-			repoOption(describe(sub.setName("add"), "cmd.repo.add.description")).addChannelOption(
-				(opt) =>
-					opt
-						.setName("channel")
-						.setDescription(t("en", "cmd.repo.add.option.channel"))
-						.addChannelTypes(...TEXT_CHANNEL_TYPES)
-						.setRequired(false),
+			repoOption(describe(sub.setName("add"), "cmd.repo.add.description")).addChannelOption((opt) =>
+				opt
+					.setName("channel")
+					.setDescription(t("en", "cmd.repo.add.option.channel"))
+					.addChannelTypes(...TEXT_CHANNEL_TYPES)
+					.setRequired(false),
 			),
 		)
-		.addSubcommand((sub) => repoOption(describe(sub.setName("remove"), "cmd.repo.remove.description")))
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("remove"), "cmd.repo.remove.description")),
+		)
 		.addSubcommand((sub) => describe(sub.setName("list"), "cmd.repo.list.description"))
-		.addSubcommand((sub) => repoOption(describe(sub.setName("events"), "cmd.repo.events.description")))
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("events"), "cmd.repo.events.description")),
+		)
 		.addSubcommand((sub) =>
 			repoOption(describe(sub.setName("channel"), "cmd.repo.channel.description")).addChannelOption(
 				(opt) =>
@@ -107,18 +110,25 @@ export const repoCommand = {
 				describe(sub.setName("regenerate-secret"), "cmd.repo.regenerateSecret.description"),
 			),
 		)
-		.addSubcommand((sub) => repoOption(describe(sub.setName("pause"), "cmd.repo.pause.description")))
-		.addSubcommand((sub) => repoOption(describe(sub.setName("resume"), "cmd.repo.resume.description")))
 		.addSubcommand((sub) =>
-			repoOption(describe(sub.setName("test"), "cmd.repo.test.description")).addStringOption((opt) =>
-				opt
-					.setName("event")
-					.setDescription(t("en", "cmd.repo.test.option.event"))
-					.setRequired(false)
-					.setAutocomplete(true),
+			repoOption(describe(sub.setName("pause"), "cmd.repo.pause.description")),
+		)
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("resume"), "cmd.repo.resume.description")),
+		)
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("test"), "cmd.repo.test.description")).addStringOption(
+				(opt) =>
+					opt
+						.setName("event")
+						.setDescription(t("en", "cmd.repo.test.option.event"))
+						.setRequired(false)
+						.setAutocomplete(true),
 			),
 		)
-		.addSubcommand((sub) => repoOption(describe(sub.setName("filters"), "cmd.repo.filters.description")))
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("filters"), "cmd.repo.filters.description")),
+		)
 		.addSubcommand((sub) =>
 			repoOption(describe(sub.setName("route"), "cmd.repo.route.description"))
 				.addStringOption((opt) =>
@@ -169,7 +179,9 @@ export const repoCommand = {
 						.addChoices(...DISPLAY_MODES.map((mode) => ({ name: mode, value: mode }))),
 				),
 		)
-		.addSubcommand((sub) => repoOption(describe(sub.setName("health"), "cmd.repo.health.description")))
+		.addSubcommand((sub) =>
+			repoOption(describe(sub.setName("health"), "cmd.repo.health.description")),
+		)
 		.addSubcommand((sub) =>
 			describe(sub.setName("language"), "cmd.repo.language.description").addStringOption((opt) =>
 				opt
@@ -192,10 +204,7 @@ export async function handleRepoCommand(
 		return;
 	}
 
-	if (
-		ctx.env.DISCORD_ALLOWED_USER_ID &&
-		interaction.user.id !== ctx.env.DISCORD_ALLOWED_USER_ID
-	) {
+	if (ctx.env.DISCORD_ALLOWED_USER_ID && interaction.user.id !== ctx.env.DISCORD_ALLOWED_USER_ID) {
 		await interaction.reply(ephemeralText(t(locale, "common.error.notAllowed")));
 		return;
 	}
@@ -440,12 +449,7 @@ async function handleChannel(
 	}
 	const { owner, repo, slug } = parsed.value;
 	const channel = interaction.options.getChannel("channel", true);
-	const updated = await ctx.repository.updateChannel(
-		interaction.guildId!,
-		owner,
-		repo,
-		channel.id,
-	);
+	const updated = await ctx.repository.updateChannel(interaction.guildId!, owner, repo, channel.id);
 	if (!updated) {
 		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;

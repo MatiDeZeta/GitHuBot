@@ -1,7 +1,7 @@
-import { isDisplayMode, type DisplayMode } from "../bot/render/template.js";
+import { type DisplayMode, isDisplayMode } from "../bot/render/template.js";
 import { isThemeId, type ThemeId } from "../bot/render/theme.js";
 import { parseEnabledEvents } from "../config/events.js";
-import { isAppLocale, type AppLocale } from "../i18n/index.js";
+import { type AppLocale, isAppLocale } from "../i18n/index.js";
 import type { GuildSettings, RepoFilters, TrackedRepo } from "./types.js";
 
 /**

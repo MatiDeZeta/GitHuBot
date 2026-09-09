@@ -1,10 +1,10 @@
 import type { EventType } from "../../config/events.js";
+import { DEFAULT_LOCALE } from "../../i18n/index.js";
 import type { FormattedMessage } from "../render/blocks.js";
 import { buildEventTemplate } from "../render/events/index.js";
-import { renderTemplate, type RenderOptions } from "../render/render.js";
+import { type RenderOptions, renderTemplate } from "../render/render.js";
 import { DEFAULT_DISPLAY_MODE } from "../render/template.js";
 import { DEFAULT_THEME } from "../render/theme.js";
-import { DEFAULT_LOCALE } from "../../i18n/index.js";
 
 export type { FormattedMessage } from "../render/blocks.js";
 export type { RenderOptions } from "../render/render.js";

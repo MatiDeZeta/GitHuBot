@@ -1,13 +1,13 @@
 import { ActivityType } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
-	INITIAL_PRESENCE,
 	applyPlaceholders,
 	buildPresenceActivities,
 	defaultRotation,
+	INITIAL_PRESENCE,
+	type PresenceStats,
 	pluralize,
 	presencePlaceholders,
-	type PresenceStats,
 } from "./presence.js";
 
 const stats: PresenceStats = {

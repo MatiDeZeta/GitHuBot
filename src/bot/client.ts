@@ -1,14 +1,14 @@
 import {
+	type ChatInputCommandInteraction,
 	Client,
 	Events,
 	GatewayIntentBits,
-	MessageFlags,
-	Partials,
-	TextDisplayBuilder,
-	type ChatInputCommandInteraction,
 	type Interaction,
 	type InteractionEditReplyOptions,
+	MessageFlags,
+	Partials,
 	type RESTPostAPIApplicationCommandsJSONBody,
+	TextDisplayBuilder,
 } from "discord.js";
 import type { FullyConfiguredEnv } from "../config/env.js";
 import type { Logger } from "../config/logger.js";
@@ -26,13 +26,13 @@ import {
 	statsCommand,
 } from "./commands/misc.js";
 import { handleRepoCommand, repoCommand } from "./commands/repo.js";
-import { handleEventsComponent } from "./commands/repo-events.js";
 import {
 	eventAutocompleteChoices,
 	FILTERS_MODAL_ID,
 	handleFiltersModal,
 } from "./commands/repo-config.js";
-import { guildContext, respondRepoAutocomplete } from "./commands/shared.js";
+import { handleEventsComponent } from "./commands/repo-events.js";
+import { guildContext, isAllowedUser, respondRepoAutocomplete } from "./commands/shared.js";
 import { INITIAL_PRESENCE, startPresence } from "./presence.js";
 
 export interface BotContext {
@@ -88,6 +88,12 @@ export function createBot(ctx: BotContext): Client {
 
 async function route(interaction: Interaction, ctx: BotContext): Promise<void> {
 	if (interaction.isAutocomplete()) {
+		// Autocomplete answers before Discord validates the submit, so it needs the
+		// same gate as the command itself or it leaks tracked repo slugs.
+		if (!isAllowedUser(ctx, interaction.user.id)) {
+			await interaction.respond([]);
+			return;
+		}
 		const focused = interaction.options.getFocused(true);
 		if (focused.name === "event") {
 			await interaction.respond(eventAutocompleteChoices(focused.value));

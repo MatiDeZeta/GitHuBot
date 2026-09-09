@@ -5,6 +5,67 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Delivery dedupe is now atomic.** `tryRecordDelivery` used a `SELECT` followed by a
+  separate `INSERT`, so two concurrent deliveries carrying the same `X-GitHub-Delivery`
+  could both pass the check and the second would throw a unique-constraint error,
+  returning 500 instead of an idempotent duplicate response. Both the SQLite and Postgres
+  repositories now use a single `INSERT … ON CONFLICT DO NOTHING … RETURNING`.
+- **Added a Fastify error handler.** Unhandled errors returned the underlying driver's
+  message (leaking schema details); 5xx responses are now generic and the real error is
+  logged instead.
+- **`/repo` autocomplete now honours `DISCORD_ALLOWED_USER_ID`.** Autocomplete answers
+  before Discord validates the submit, so any other Manage Server holder could enumerate
+  tracked repository slugs even though the command itself was correctly blocked.
+- **Untrusted body text can no longer forge links or headings.** Quoted issue, PR and
+  release bodies now escape `[label](url)` link syntax and leading `#` headings — a
+  blockquote does not neutralise either. Zero-width and bidi-override characters are
+  stripped from titles, logins and bodies so one identity cannot visually impersonate
+  another.
+- **`TRUST_PROXY`** — new setting. Without it `request.ip` is the proxy's address behind
+  Railway/Docker/nginx, so the per-IP rate limit shared one bucket across all callers. A
+  bare hop count is rejected because that form is spoofable
+  ([GHSA-3m5p-2c4r-xxw2](https://github.com/fastify/fastify/security/advisories/GHSA-3m5p-2c4r-xxw2)).
+- **`METRICS_TOKEN`** — new setting. Optionally gates `/metrics` behind a bearer token,
+  compared in constant time. `/health` stays public for platform health checks.
+- **Log redaction** — pino now redacts secret, token and signature fields defensively.
+- **Dependencies** — `fastify` floor raised to `^5.12.1`, closing CVE-2026-16732 and
+  CVE-2026-18504; `esbuild` overridden to `>=0.25.0` to clear GHSA-67mh-4wv8-2f99 from
+  drizzle-kit's deprecated transitive chain. `pnpm audit` is clean and now runs in CI.
+
+### Added
+
+- **Six new event types** (42 → 48), all verified as repository-webhook-scoped against
+  [GitHub's webhook documentation](https://docs.github.com/en/webhooks/webhook-events-and-payloads):
+  `sub_issues` and `issue_dependencies` (issues), `repository_advisory`,
+  `repository_ruleset` and `security_and_analysis` (security), and
+  `custom_property_values` (repository & meta).
+- **`WEBHOOK_BODY_LIMIT`** — the body limit was 1 MiB while GitHub sends up to 25 MiB, so
+  large pushes and release bodies were rejected with a 413 before signature verification
+  and silently lost. The default is now GitHub's own 25 MiB cap, and the value is
+  tunable for operators who would rather buffer less per request.
+- **`/repo filters` now uses Discord's `Label` component.** Discord deprecated Text Input
+  inside an Action Row for modals; each filter field is now a `Label` (type 18) wrapping
+  its input, which also gives every field a description line the old layout had nowhere
+  to put. ([Components reference](https://docs.discord.com/developers/components/reference))
+- **HTTP-layer test coverage** — the Fastify webhook route had none. New tests cover the
+  signed happy path, bad and tampered signatures, unknown tracking ids, missing headers,
+  replayed deliveries, the concurrent-replay race above, the body limit, and
+  `/metrics` authentication.
+
+### Changed
+
+- `security_advisory` is documented as GitHub-App-only; a repository webhook never
+  receives it. It is kept for existing configurations, with `repository_advisory` added
+  as the repository-scoped equivalent.
+- CI now runs on push and pull request to `main`, not `workflow_dispatch` only, and
+  installs with `--frozen-lockfile`. `pnpm-lock.yaml` is committed so builds are
+  reproducible and auditable.
+- The repository is now formatted to its own Biome configuration.
+
 ## [1.1.0] — 2026-07-26
 
 ### Added

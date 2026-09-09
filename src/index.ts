@@ -1,16 +1,17 @@
 import type { Client } from "discord.js";
+import { type BotContext, createBot, registerCommands } from "./bot/client.js";
+import { applyIconOverrides } from "./bot/render/icons.js";
 import {
+	type Env,
+	envWarnings,
+	type FullyConfiguredEnv,
 	isFullyConfigured,
 	loadEnv,
 	missingConfigKeys,
-	type Env,
-	type FullyConfiguredEnv,
 } from "./config/env.js";
 import { createLogger, type Logger } from "./config/logger.js";
-import { applyIconOverrides } from "./bot/render/icons.js";
 import { parseMasterKey } from "./crypto/secrets.js";
-import { createDb, migrate, type DbHandle } from "./db/index.js";
-import { createBot, registerCommands, type BotContext } from "./bot/client.js";
+import { createDb, type DbHandle, migrate } from "./db/index.js";
 import { createServer, type ServerContext } from "./server/app.js";
 
 function renderDefaultsFrom(env: Env): BotContext["renderDefaults"] {
@@ -24,6 +25,10 @@ function renderDefaultsFrom(env: Env): BotContext["renderDefaults"] {
 async function main(): Promise<void> {
 	const env = loadEnv();
 	const logger = createLogger(env);
+
+	for (const warning of envWarnings(env)) {
+		logger.warn(warning);
+	}
 
 	const unknownIcons = applyIconOverrides(env.EMOJI_OVERRIDES);
 	if (unknownIcons.length > 0) {

@@ -1,14 +1,15 @@
 import type { ButtonBuilder } from "discord.js";
-import { resolveText, t, type AppLocale } from "../../i18n/index.js";
+import { type AppLocale, resolveText, t } from "../../i18n/index.js";
 import {
 	buildMessage,
 	container,
 	escapeMarkdown,
+	type FormattedMessage,
 	firstLine,
 	linkButton,
-	mediaGallery,
 	MAX_ROW_BUTTONS,
 	MAX_TEXT_CHARS,
+	mediaGallery,
 	relativeTime,
 	row,
 	safeImageUrl,
@@ -17,11 +18,10 @@ import {
 	text,
 	thumbnailSection,
 	truncate,
-	type FormattedMessage,
 } from "./blocks.js";
 import { icon } from "./icons.js";
+import type { DisplayMode, EventTemplate } from "./template.js";
 import { resolveAccent, type ThemeId } from "./theme.js";
-import type { EventTemplate, DisplayMode } from "./template.js";
 
 export interface RenderOptions {
 	theme: ThemeId;
@@ -91,7 +91,10 @@ function renderDetailed(
 	}
 
 	const fieldLines = (tpl.fields ?? [])
-		.map((field) => `**${resolveText(opts.locale, field.label)}:** ${resolveText(opts.locale, field.value)}`)
+		.map(
+			(field) =>
+				`**${resolveText(opts.locale, field.label)}:** ${resolveText(opts.locale, field.value)}`,
+		)
 		.filter((line) => line.length > 0);
 
 	if (fieldLines.length > 0) {

@@ -1,8 +1,8 @@
 import {
-	ActivityType,
-	PresenceUpdateStatus,
 	type ActivitiesOptions,
+	ActivityType,
 	type Client,
+	PresenceUpdateStatus,
 } from "discord.js";
 import type { PresenceEntry } from "../config/env.js";
 import type { Logger } from "../config/logger.js";

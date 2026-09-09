@@ -1,3 +1,4 @@
+import type { AccentKey, IconKey } from "../../../design/tokens.js";
 import type {
 	CheckRunPayload,
 	CheckSuitePayload,
@@ -8,7 +9,6 @@ import type {
 	WorkflowRunPayload,
 } from "../../../github/payloads.js";
 import { tx } from "../../../i18n/index.js";
-import type { AccentKey, IconKey } from "../../../design/tokens.js";
 import type { EventTemplate, TemplateField } from "../template.js";
 import {
 	actorBits,
@@ -176,7 +176,11 @@ export function formatCheckSuite(payload: CheckSuitePayload): EventTemplate | nu
 	if (suite.app?.name) fields.push({ label: tx("field.suite"), value: code(suite.app.name) });
 	if (suite.head_branch) fields.push({ label: tx("field.branch"), value: code(suite.head_branch) });
 	if (suite.head_sha) {
-		fields.push({ label: tx("field.commit"), value: code(suite.head_sha.slice(0, 7)), secondary: true });
+		fields.push({
+			label: tx("field.commit"),
+			value: code(suite.head_sha.slice(0, 7)),
+			secondary: true,
+		});
 	}
 
 	return {
@@ -251,9 +255,7 @@ export function formatDeployment(payload: DeploymentPayload): EventTemplate | nu
 	};
 }
 
-export function formatDeploymentStatus(
-	payload: DeploymentStatusPayload,
-): EventTemplate | null {
+export function formatDeploymentStatus(payload: DeploymentStatusPayload): EventTemplate | null {
 	const status = payload.deployment_status;
 	const state = status.state;
 	if (state === "queued") return null;

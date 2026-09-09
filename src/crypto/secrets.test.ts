@@ -1,5 +1,10 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { formatGitHubEvent } from "../bot/components/index.js";
+import { DEFAULT_ENABLED_EVENTS, githubEventToType, repoSlugSchema } from "../config/events.js";
 import {
 	decryptSecret,
 	encryptSecret,
@@ -7,14 +12,8 @@ import {
 	generateWebhookSecret,
 	parseMasterKey,
 } from "../crypto/secrets.js";
-import { verifyGitHubSignature } from "../github/verify.js";
-import { githubEventToType, repoSlugSchema } from "../config/events.js";
-import { formatGitHubEvent } from "../bot/components/index.js";
 import { createDb, migrate } from "../db/index.js";
-import { DEFAULT_ENABLED_EVENTS } from "../config/events.js";
-import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { verifyGitHubSignature } from "../github/verify.js";
 
 describe("crypto secrets", () => {
 	const key = parseMasterKey(randomBytes(32).toString("hex"));
@@ -121,8 +120,10 @@ describe("formatters", () => {
 		});
 		expect(msg).not.toBeNull();
 		const serialized = JSON.stringify(msg);
-		expect(serialized).toContain("**acme/app**");
-		expect(serialized).toContain("**feat: add thing**");
+		expect(serialized).toContain("[`acme/app`](https://github.com/acme/app)");
+		expect(serialized).toContain("feat: add thing");
+		// The commit body is dropped; only the subject line survives.
+		expect(serialized).not.toContain("body");
 		expect(msg?.flags).toBeDefined();
 	});
 
@@ -168,11 +169,12 @@ describe("formatters", () => {
 		});
 		expect(msg).not.toBeNull();
 		const serialized = JSON.stringify(msg);
-		expect(serialized).toContain("**acme/app**");
+		expect(serialized).toContain("[`acme/app`](https://github.com/acme/app)");
 		expect(serialized).toContain("`v1.0.0`");
-		expect(serialized).toContain("**GitHuBot v1.0.0 — Release Notes**");
+		expect(serialized).toContain("GitHuBot v1.0.0 — Release Notes");
 		expect(serialized).toContain("lots of notes about the ship");
-		expect(serialized).not.toContain("## Highlights");
+		// Headings in an untrusted body must not render as headings.
+		expect(serialized).not.toContain("> ## Highlights");
 	});
 
 	it("formats a merged pull request distinctly", () => {
@@ -218,14 +220,17 @@ describe("formatters", () => {
 		});
 		expect(closed).not.toBeNull();
 		expect(JSON.stringify(msg)).not.toEqual(JSON.stringify(closed));
-		expect(JSON.stringify(msg)).toContain("**Ship it**");
+		expect(JSON.stringify(msg)).toContain("#42 · Ship it");
 		expect(JSON.stringify(msg)).not.toContain("**acme/app**");
 	});
 });
 
 describe("delivery dedupe", () => {
 	it("records a delivery only once", async () => {
-		const dir = join(tmpdir(), `githubot-test-${createHash("sha1").update(String(Date.now())).digest("hex").slice(0, 8)}`);
+		const dir = join(
+			tmpdir(),
+			`githubot-test-${createHash("sha1").update(String(Date.now())).digest("hex").slice(0, 8)}`,
+		);
 		mkdirSync(dir, { recursive: true });
 		const dbPath = join(dir, "test.db");
 		const url = `file:${dbPath}`;

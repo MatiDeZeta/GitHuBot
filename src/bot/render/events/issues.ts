@@ -1,11 +1,13 @@
+import type { AccentKey, IconKey } from "../../../design/tokens.js";
 import type {
 	IssueCommentPayload,
+	IssueDependenciesPayload,
 	IssuesPayload,
 	LabelPayload,
 	MilestonePayload,
+	SubIssuesPayload,
 } from "../../../github/payloads.js";
 import { tx } from "../../../i18n/index.js";
-import type { AccentKey, IconKey } from "../../../design/tokens.js";
 import type { EventTemplate, TemplateField } from "../template.js";
 import {
 	actorBits,
@@ -140,6 +142,125 @@ export function formatLabel(payload: LabelPayload): EventTemplate | null {
 	};
 }
 
+/** Both sub-issue and dependency events describe a link between two issues. */
+function issueLinkTemplate(
+	payload: { repository: IssuesPayload["repository"]; sender?: IssuesPayload["sender"] },
+	title: ReturnType<typeof tx>,
+	primary: { html_url: string; number: number; title: string } | undefined,
+	related: { html_url: string; number: number; title: string } | undefined,
+	relatedLabel: ReturnType<typeof tx>,
+	added: boolean,
+): EventTemplate | null {
+	if (!primary) return null;
+	const bits = repoBits(payload.repository);
+
+	return {
+		accent: added ? "issueOpen" : "neutral",
+		icon: "issue",
+		title,
+		subtitle: numbered(primary.number, primary.title),
+		repo: bits.repo,
+		repoUrl: bits.repoUrl,
+		language: bits.language,
+		actor: actorBits(payload.sender),
+		fields: related
+			? [{ label: relatedLabel, value: numbered(related.number, related.title) }]
+			: undefined,
+		links: links(
+			{ label: tx("link.issue"), url: primary.html_url },
+			{ label: relatedLabel, url: related?.html_url },
+		),
+		timestamp: new Date(),
+		importance: "normal",
+	};
+}
+
+export function formatSubIssues(payload: SubIssuesPayload): EventTemplate | null {
+	switch (payload.action) {
+		case "sub_issue_added":
+			return issueLinkTemplate(
+				payload,
+				tx("title.subIssue.added"),
+				payload.parent_issue,
+				payload.sub_issue,
+				tx("field.subIssue"),
+				true,
+			);
+		case "sub_issue_removed":
+			return issueLinkTemplate(
+				payload,
+				tx("title.subIssue.removed"),
+				payload.parent_issue,
+				payload.sub_issue,
+				tx("field.subIssue"),
+				false,
+			);
+		case "parent_issue_added":
+			return issueLinkTemplate(
+				payload,
+				tx("title.subIssue.parentAdded"),
+				payload.sub_issue,
+				payload.parent_issue,
+				tx("field.parentIssue"),
+				true,
+			);
+		case "parent_issue_removed":
+			return issueLinkTemplate(
+				payload,
+				tx("title.subIssue.parentRemoved"),
+				payload.sub_issue,
+				payload.parent_issue,
+				tx("field.parentIssue"),
+				false,
+			);
+		default:
+			return null;
+	}
+}
+
+export function formatIssueDependencies(payload: IssueDependenciesPayload): EventTemplate | null {
+	switch (payload.action) {
+		case "blocked_by_added":
+			return issueLinkTemplate(
+				payload,
+				tx("title.issueDependency.blockedByAdded"),
+				payload.blocked_issue,
+				payload.blocking_issue,
+				tx("field.blockedBy"),
+				true,
+			);
+		case "blocked_by_removed":
+			return issueLinkTemplate(
+				payload,
+				tx("title.issueDependency.blockedByRemoved"),
+				payload.blocked_issue,
+				payload.blocking_issue,
+				tx("field.blockedBy"),
+				false,
+			);
+		case "blocking_added":
+			return issueLinkTemplate(
+				payload,
+				tx("title.issueDependency.blockingAdded"),
+				payload.blocking_issue,
+				payload.blocked_issue,
+				tx("field.blocking"),
+				true,
+			);
+		case "blocking_removed":
+			return issueLinkTemplate(
+				payload,
+				tx("title.issueDependency.blockingRemoved"),
+				payload.blocking_issue,
+				payload.blocked_issue,
+				tx("field.blocking"),
+				false,
+			);
+		default:
+			return null;
+	}
+}
+
 export function formatMilestone(payload: MilestonePayload): EventTemplate | null {
 	const key =
 		payload.action === "created"
@@ -159,10 +280,7 @@ export function formatMilestone(payload: MilestonePayload): EventTemplate | null
 	const milestone = payload.milestone;
 	const fields: TemplateField[] = [];
 
-	if (
-		typeof milestone.open_issues === "number" &&
-		typeof milestone.closed_issues === "number"
-	) {
+	if (typeof milestone.open_issues === "number" && typeof milestone.closed_issues === "number") {
 		fields.push({
 			label: tx("field.progress"),
 			value: tx("value.milestoneProgress", {

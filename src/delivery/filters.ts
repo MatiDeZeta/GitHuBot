@@ -135,10 +135,7 @@ function obj(value: unknown): Record<string, unknown> | undefined {
 		: undefined;
 }
 
-function nested(
-	payload: Payload,
-	...path: string[]
-): Record<string, unknown> | undefined {
+function nested(payload: Payload, ...path: string[]): Record<string, unknown> | undefined {
 	let current: Record<string, unknown> | undefined = payload;
 	for (const key of path) {
 		current = obj(current?.[key]);

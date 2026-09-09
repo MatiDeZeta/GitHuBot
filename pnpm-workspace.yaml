@@ -2,3 +2,8 @@
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+
+# drizzle-kit pulls a deprecated @esbuild-kit chain pinned to esbuild <=0.24.2
+# (GHSA-67mh-4wv8-2f99). Dev-only, but the override keeps `pnpm audit` clean.
+overrides:
+  esbuild: ">=0.25.0"

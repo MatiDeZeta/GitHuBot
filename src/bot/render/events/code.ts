@@ -6,7 +6,16 @@ import type {
 import { tx } from "../../../i18n/index.js";
 import { truncate } from "../blocks.js";
 import type { EventTemplate } from "../template.js";
-import { actorBits, code, links, quote, repoBits, repositoryLink, shortRef, titleText } from "./common.js";
+import {
+	actorBits,
+	code,
+	links,
+	quote,
+	repoBits,
+	repositoryLink,
+	shortRef,
+	titleText,
+} from "./common.js";
 
 const MAX_COMMIT_LINES = 8;
 

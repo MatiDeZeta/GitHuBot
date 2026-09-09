@@ -1,34 +1,34 @@
 import {
-	ActionRowBuilder,
+	type ChatInputCommandInteraction,
+	LabelBuilder,
 	MessageFlags,
 	ModalBuilder,
+	type ModalSubmitInteraction,
 	TextInputBuilder,
 	TextInputStyle,
-	type ChatInputCommandInteraction,
-	type ModalSubmitInteraction,
 } from "discord.js";
 import {
 	EVENT_CATEGORIES,
 	EVENT_TYPES,
-	eventTypeSchema,
 	type EventCategoryId,
 	type EventType,
+	eventTypeSchema,
 } from "../../config/events.js";
 import type { RepoFilters, TrackedRepo } from "../../db/types.js";
-import { parseFilterList } from "../../delivery/filters.js";
 import { deliverTemplate, renderOptionsFor } from "../../delivery/dispatch.js";
+import { parseFilterList } from "../../delivery/filters.js";
 import { resolveChannelId } from "../../delivery/routing.js";
 import {
+	type AppLocale,
 	categoryLabel,
 	isAppLocale,
 	SUPPORTED_LOCALES,
 	t,
-	type AppLocale,
 } from "../../i18n/index.js";
+import type { BotContext } from "../client.js";
 import { sampleTemplate } from "../render/samples.js";
 import { isDisplayMode } from "../render/template.js";
 import { isThemeId } from "../render/theme.js";
-import type { BotContext } from "../client.js";
 import {
 	ephemeralText,
 	ephemeralTextEdit,
@@ -85,9 +85,7 @@ export async function handleTest(
 	const rawEvent = interaction.options.getString("event") ?? "push";
 	const parsedEvent = eventTypeSchema.safeParse(rawEvent);
 	if (!parsedEvent.success) {
-		await interaction.reply(
-			ephemeralText(t(locale, "repo.test.unsupported", { event: rawEvent })),
-		);
+		await interaction.reply(ephemeralText(t(locale, "repo.test.unsupported", { event: rawEvent })));
 		return;
 	}
 	const eventType: EventType = parsedEvent.data;
@@ -123,9 +121,7 @@ export async function handleTest(
 	const channelId = resolveChannelId(tracked, eventType);
 	if (outcome.status === "delivered") {
 		await interaction.editReply(
-			ephemeralTextEdit(
-				t(locale, "repo.test.sent", { event: eventType, channel: channelId }),
-			),
+			ephemeralTextEdit(t(locale, "repo.test.sent", { event: eventType, channel: channelId })),
 		);
 		return;
 	}
@@ -315,28 +311,32 @@ export async function showFiltersModal(
 	const modal = new ModalBuilder()
 		.setCustomId(`${FILTERS_MODAL_ID}${tracked.id}`)
 		.setTitle(`${t(locale, "repo.filters.modalTitle")} · ${slugOf(tracked)}`.slice(0, 45))
-		.addComponents(
+		.addLabelComponents(
 			filterInput(
 				"branchInclude",
 				t(locale, "repo.filters.branchInclude"),
+				t(locale, "repo.filters.branchIncludeHint"),
 				t(locale, "repo.filters.placeholderBranches"),
 				tracked.filters.branchInclude,
 			),
 			filterInput(
 				"branchExclude",
 				t(locale, "repo.filters.branchExclude"),
+				t(locale, "repo.filters.branchExcludeHint"),
 				t(locale, "repo.filters.placeholderBranches"),
 				tracked.filters.branchExclude,
 			),
 			filterInput(
 				"labels",
 				t(locale, "repo.filters.labels"),
+				t(locale, "repo.filters.labelsHint"),
 				t(locale, "repo.filters.placeholderLabels"),
 				tracked.filters.labels,
 			),
 			filterInput(
 				"ignoredActors",
 				t(locale, "repo.filters.ignoredActors"),
+				t(locale, "repo.filters.ignoredActorsHint"),
 				t(locale, "repo.filters.placeholderActors"),
 				tracked.filters.ignoredActors,
 			),
@@ -345,21 +345,29 @@ export async function showFiltersModal(
 	await interaction.showModal(modal);
 }
 
+/**
+ * Discord deprecated Text Input inside an Action Row for modals; Label is the
+ * replacement, and it carries a description the old pattern had nowhere to put.
+ */
 function filterInput(
 	id: string,
 	label: string,
+	description: string,
 	placeholder: string,
 	value: string[],
-): ActionRowBuilder<TextInputBuilder> {
+): LabelBuilder {
 	const input = new TextInputBuilder()
 		.setCustomId(id)
-		.setLabel(label.slice(0, 45))
 		.setStyle(TextInputStyle.Short)
 		.setPlaceholder(placeholder.slice(0, 100))
 		.setRequired(false)
 		.setMaxLength(300);
 	if (value.length > 0) input.setValue(value.join(", ").slice(0, 300));
-	return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
+
+	return new LabelBuilder()
+		.setLabel(label.slice(0, 45))
+		.setDescription(description.slice(0, 100))
+		.setTextInputComponent(input);
 }
 
 export async function handleFiltersModal(

@@ -1,2 +1,2 @@
-export { verifyGitHubSignature } from "./verify.js";
 export * from "./payloads.js";
+export { verifyGitHubSignature } from "./verify.js";

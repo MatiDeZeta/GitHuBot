@@ -18,7 +18,7 @@
   Beautiful Discord changelog messages for GitHub activity — <strong>without giving the bot any GitHub credentials</strong>.
 </p>
 
-> Replaces GitHub’s default Discord webhook spam with branded [Components V2](https://docs.discord.com/developers/components/reference) messages across **42 event types**. You create the webhook yourself; the bot only *receives* and verifies signed deliveries.
+> Replaces GitHub’s default Discord webhook spam with branded [Components V2](https://docs.discord.com/developers/components/reference) messages across **48 event types**. You create the webhook yourself; the bot only *receives* and verifies signed deliveries.
 
 > [**ⓘ**](#security) **Security:** there is no `GITHUB_TOKEN` in this project. A compromise of the host cannot leak or misuse GitHub write access, because none exists.
 
@@ -45,7 +45,7 @@ GitHub’s built-in Discord integration dumps generic embeds. GitHuBot turns the
 ### Features
 
 1. **Zero GitHub credentials** — per-repo tracking ID + encrypted webhook secret
-2. **42 event types** in nine categories, toggled through a two-step picker
+2. **48 event types** in nine categories, toggled through a two-step picker
 3. **Components V2 only** — no legacy embeds
 4. **Themes and density** — five palettes, detailed or compact
 5. **Filters, routing and mentions** — branch/label/author rules, per-category channels, role pings
@@ -136,15 +136,17 @@ Defaults are marked ●. Everything else is opt-in through `/repo events`.
 |---|---|
 | **Code** | `push` ● · `create` ● · `delete` ● · `commit_comment` |
 | **Pull requests** | `pull_request` ● · `pull_request_review` · `pull_request_review_comment` · `pull_request_review_thread` |
-| **Issues** | `issues` ● · `issue_comment` · `label` · `milestone` |
+| **Issues** | `issues` ● · `issue_comment` · `label` · `milestone` · `sub_issues` · `issue_dependencies` |
 | **CI/CD** | `workflow_run` · `workflow_job` · `check_run` · `check_suite` · `status` · `deployment` · `deployment_status` |
 | **Releases** | `release` ● · `package` · `registry_package` |
 | **Discussions** | `discussion` · `discussion_comment` |
-| **Security** | `dependabot_alert` · `code_scanning_alert` · `secret_scanning_alert` · `secret_scanning_alert_location` · `security_advisory` · `branch_protection_rule` · `branch_protection_configuration` |
+| **Security** | `dependabot_alert` · `code_scanning_alert` · `secret_scanning_alert` · `secret_scanning_alert_location` · `repository_advisory` · `repository_ruleset` · `security_and_analysis` · `security_advisory`* · `branch_protection_rule` · `branch_protection_configuration` |
 | **Community** | `fork` · `star` · `sponsorship` · `member` · `public` |
-| **Repository & meta** | `repository` · `gollum` · `projects_v2_item` · `deploy_key` · `meta` · `page_build` |
+| **Repository & meta** | `repository` · `gollum` · `projects_v2_item` · `deploy_key` · `meta` · `page_build` · `custom_property_values` |
 
 Presets in the picker: **Minimal** (`push`, `release`), **Standard** (the six defaults), **Everything**, **Disable all**.
+
+<sub>*`security_advisory` is only ever delivered to GitHub Apps, so a repository webhook never receives it — it is kept for older configurations. `repository_advisory` is the repository-scoped equivalent. ([Availability](https://docs.github.com/en/webhooks/webhook-events-and-payloads))</sub>
 
 Some events are intentionally quiet even when enabled: successful workflow jobs, check runs and check suites are skipped because the workflow-level result already covers them, and `pending` commit statuses never post.
 
@@ -251,6 +253,9 @@ pnpm dev
 | `DISCORD_ALLOWED_USER_ID` | no | Restrict `/repo` to one Discord user ID |
 | `DATABASE_URL` | no | Default `file:/app/data/githubot.db` in Docker; local default `file:./data/githubot.db`; or `postgresql://…` |
 | `PORT` / `HOST` | no | Default `3000` / `0.0.0.0` |
+| `TRUST_PROXY` | no | `true`/`false` or an IP/CIDR list. Required for per-IP rate limiting behind a proxy |
+| `WEBHOOK_BODY_LIMIT` | no | Max delivery size in bytes. Default `26214400` (GitHub's 25 MiB cap) |
+| `METRICS_TOKEN` | no | When set, `/metrics` requires `Authorization: Bearer <token>` |
 | `LOG_LEVEL` | no | Default `info` |
 | `DEFAULT_THEME` | no | `default` · `github` · `neon` · `mono` · `language` |
 | `DEFAULT_DISPLAY_MODE` | no | `detailed` (default) or `compact` |
@@ -269,8 +274,8 @@ Malformed JSON in `EMOJI_OVERRIDES` or `PRESENCE_ROTATION` is treated as unset r
 
 | Route | Purpose |
 |---|---|
-| `GET /health` | Liveness plus which required env vars are missing |
-| `GET /metrics` | In-process delivery counters as JSON |
+| `GET /health` | Liveness plus which required env vars are missing (always public) |
+| `GET /metrics` | In-process delivery counters as JSON; gated by `METRICS_TOKEN` when set |
 | `POST /webhooks/github/:trackingId` | Signed GitHub deliveries |
 
 ---
@@ -296,6 +301,7 @@ SQLite persists in the `githubot-data` volume.
 3. Set `DATABASE_URL=file:/app/data/githubot.db` (required with the volume)
 4. Set the other env vars from the table above
 5. Set `PUBLIC_WEBHOOK_URL` to your Railway public domain
+6. Set `TRUST_PROXY=true` so per-IP rate limiting sees the real caller
 
 The image entrypoint `chown`s `/app/data` on boot so the non-root process can create SQLite files on Railway volumes.
 
@@ -328,7 +334,21 @@ See [`CHANGELOG.md`](CHANGELOG.md) and [`RELEASE_NOTES_v1.1.0.md`](RELEASE_NOTES
 
 ## Security
 
-GitHuBot is a **pure webhook receiver**. Secrets are generated locally, stored encrypted (AES-256-GCM), and never sent to GitHub by the bot. Signature checks use `X-Hub-Signature-256`; deliveries are deduped with `X-GitHub-Delivery`. Untrusted GitHub text is escaped and quoted before rendering, and role pings are scoped with `allowedMentions` so a commit message cannot trigger one.
+GitHuBot is a **pure webhook receiver**. Secrets are generated locally, stored encrypted (AES-256-GCM), and never sent to GitHub by the bot. Signature checks use `X-Hub-Signature-256` with a constant-time compare; deliveries are deduped with `X-GitHub-Delivery` in a single atomic insert, so a replayed or concurrently redelivered payload can never post twice.
+
+Untrusted GitHub text (commit messages, issue and PR bodies, logins) is escaped before rendering:
+
+- Markdown control characters are escaped in titles and logins.
+- Link syntax (`[label](url)`) and leading `#` headings are escaped inside quoted bodies, so a body cannot forge a heading or put attacker-chosen words on an attacker-chosen link.
+- Zero-width and bidi-override characters are stripped, so one login cannot visually impersonate another.
+- Role pings are scoped with `allowedMentions`, so a commit message cannot trigger one.
+
+Operational hardening:
+
+- Set **`TRUST_PROXY`** in any proxied deployment (Railway, Docker, nginx) — without it every request appears to come from the proxy and the per-IP rate limit collapses into one shared bucket. A bare hop count is rejected because that form is spoofable ([GHSA-3m5p-2c4r-xxw2](https://github.com/fastify/fastify/security/advisories/GHSA-3m5p-2c4r-xxw2)).
+- Set **`METRICS_TOKEN`** if the instance is reachable from the internet; `/health` stays public for platform health checks.
+- Unhandled errors return a generic body, never the underlying driver message.
+- `/repo` autocomplete honours `DISCORD_ALLOWED_USER_ID`, so tracked repo slugs are not enumerable by other Manage Server holders.
 
 ---
 

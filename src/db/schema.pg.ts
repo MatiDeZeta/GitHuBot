@@ -15,12 +15,8 @@ export const guilds = pgTable("guilds", {
 	locale: text("locale"),
 	defaultTheme: text("default_theme"),
 	defaultDisplayMode: text("default_display_mode"),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-		.notNull()
-		.defaultNow(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-		.notNull()
-		.defaultNow(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
 export const trackedRepos = pgTable(
@@ -59,12 +55,8 @@ export const trackedRepos = pgTable(
 		deliveredCount: integer("delivered_count").notNull().default(0),
 		failedCount: integer("failed_count").notNull().default(0),
 
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-			.notNull()
-			.defaultNow(),
-		updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-			.notNull()
-			.defaultNow(),
+		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 	},
 	(table) => [
 		uniqueIndex("tracked_repos_guild_owner_repo_idx").on(table.guildId, table.owner, table.repo),
@@ -77,9 +69,7 @@ export const deliveries = pgTable(
 	{
 		deliveryId: text("delivery_id").primaryKey(),
 		trackingId: text("tracking_id").notNull(),
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-			.notNull()
-			.defaultNow(),
+		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 	},
 	(table) => [index("deliveries_created_at_idx").on(table.createdAt)],
 );

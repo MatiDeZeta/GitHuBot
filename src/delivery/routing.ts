@@ -14,9 +14,7 @@ export type DeliveryTarget =
 	| { kind: "channel"; channel: GuildTextBasedChannel }
 	| { kind: "forum"; channel: ForumChannel | MediaChannel };
 
-export type RouteFailure =
-	| { ok: false; reason: "missing" }
-	| { ok: false; reason: "unsupported" };
+export type RouteFailure = { ok: false; reason: "missing" } | { ok: false; reason: "unsupported" };
 
 export type RouteResult = { ok: true; target: DeliveryTarget } | RouteFailure;
 
@@ -30,10 +28,7 @@ export function resolveChannelId(tracked: TrackedRepo, eventType: EventType): st
 	return routes[eventType] ?? routes[categoryOf(eventType)] ?? tracked.channelId;
 }
 
-export async function resolveTarget(
-	client: Client,
-	channelId: string,
-): Promise<RouteResult> {
+export async function resolveTarget(client: Client, channelId: string): Promise<RouteResult> {
 	const channel = await client.channels.fetch(channelId).catch(() => null);
 	if (!channel) return { ok: false, reason: "missing" };
 

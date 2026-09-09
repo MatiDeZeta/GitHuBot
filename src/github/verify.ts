@@ -28,12 +28,7 @@ export async function verifyGitHubSignature(
 			return false;
 		}
 		// Primary failed; accept any previous secret during rotation grace.
-		const ok = await verifyWithFallback(
-			secret,
-			rawBody,
-			signatureHeader,
-			previousSecrets,
-		);
+		const ok = await verifyWithFallback(secret, rawBody, signatureHeader, previousSecrets);
 		return ok ? "fallback" : false;
 	} catch {
 		return false;

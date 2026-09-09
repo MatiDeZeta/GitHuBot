@@ -1,14 +1,14 @@
 import {
+	type ChatInputCommandInteraction,
+	version as discordJsVersion,
 	InteractionContextType,
 	SlashCommandBuilder,
-	version as discordJsVersion,
-	type ChatInputCommandInteraction,
 } from "discord.js";
-import { localizations, t, type TranslationKey } from "../../i18n/index.js";
+import { localizations, type TranslationKey, t } from "../../i18n/index.js";
 import { formatUptime, metrics } from "../../metrics.js";
 import { VERSION } from "../../version.js";
-import { icon } from "../render/icons.js";
 import type { BotContext } from "../client.js";
+import { icon } from "../render/icons.js";
 import { ephemeralText, guildContext, slugOf } from "./shared.js";
 
 const REPOSITORY_URL = "https://github.com/MatiDeZeta/GitHuBot";
@@ -95,12 +95,9 @@ export async function handleHelp(
 
 	await interaction.reply(
 		ephemeralText(
-			[
-				`${t(locale, "help.heading")} v${VERSION}`,
-				t(locale, "help.intro"),
-				"",
-				...sections,
-			].join("\n"),
+			[`${t(locale, "help.heading")} v${VERSION}`, t(locale, "help.intro"), "", ...sections].join(
+				"\n",
+			),
 		),
 	);
 }

@@ -1,6 +1,6 @@
-import type { EventType } from "../config/events.js";
 import type { DisplayMode } from "../bot/render/template.js";
 import type { ThemeId } from "../bot/render/theme.js";
+import type { EventType } from "../config/events.js";
 import type { AppLocale } from "../i18n/index.js";
 
 export interface RepoFilters {

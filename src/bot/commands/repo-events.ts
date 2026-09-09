@@ -1,32 +1,32 @@
 import {
 	ActionRowBuilder,
 	ButtonBuilder,
+	type ButtonInteraction,
 	ButtonStyle,
 	StringSelectMenuBuilder,
-	TextDisplayBuilder,
-	type ButtonInteraction,
 	type StringSelectMenuInteraction,
+	TextDisplayBuilder,
 } from "discord.js";
 import {
 	DEFAULT_ENABLED_EVENTS,
 	EVENT_CATEGORIES,
 	EVENT_META,
 	EVENT_TYPES,
-	eventsInCategory,
 	type EventCategoryId,
 	type EventType,
+	eventsInCategory,
 } from "../../config/events.js";
 import type { TrackedRepo } from "../../db/types.js";
 import {
+	type AppLocale,
 	categoryDescription,
 	categoryLabel,
 	eventDescription,
 	eventLabel,
 	t,
-	type AppLocale,
 } from "../../i18n/index.js";
-import { icon } from "../render/icons.js";
 import type { BotContext } from "../client.js";
+import { icon } from "../render/icons.js";
 import { ephemeralText, guildContext, isAllowedUser, slugOf, v2Update } from "./shared.js";
 
 /*
@@ -55,8 +55,7 @@ function isPresetName(value: string): value is PresetName {
 }
 
 function enabledInCategory(tracked: TrackedRepo, category: EventCategoryId): number {
-	return eventsInCategory(category).filter((event) => tracked.enabledEvents.includes(event))
-		.length;
+	return eventsInCategory(category).filter((event) => tracked.enabledEvents.includes(event)).length;
 }
 
 /** Screen one: pick a category, or apply a preset. */
@@ -78,10 +77,11 @@ export function categoryView(tracked: TrackedRepo, locale: AppLocale) {
 				return {
 					label: `${icon(category.icon)} ${categoryLabel(locale, category.id)}`,
 					value: category.id,
-					description: `${t(locale, "repo.events.categoryCount", { enabled, total })} · ${categoryDescription(locale, category.id)}`.slice(
-						0,
-						100,
-					),
+					description:
+						`${t(locale, "repo.events.categoryCount", { enabled, total })} · ${categoryDescription(locale, category.id)}`.slice(
+							0,
+							100,
+						),
 				};
 			}),
 		);
@@ -104,11 +104,7 @@ export function categoryView(tracked: TrackedRepo, locale: AppLocale) {
 }
 
 /** Screen two: toggle the events inside one category (always under 25 options). */
-export function toggleView(
-	tracked: TrackedRepo,
-	category: EventCategoryId,
-	locale: AppLocale,
-) {
+export function toggleView(tracked: TrackedRepo, category: EventCategoryId, locale: AppLocale) {
 	const events = eventsInCategory(category);
 	const enabled = events.filter((event) => tracked.enabledEvents.includes(event));
 
@@ -209,13 +205,12 @@ export async function handleEventsComponent(
 			return;
 		}
 		const events = [...PRESETS[preset]];
-		const updated =
-			(await ctx.repository.updateEvents(
-				tracked.guildId,
-				tracked.owner,
-				tracked.repo,
-				events,
-			)) ?? { ...tracked, enabledEvents: events };
+		const updated = (await ctx.repository.updateEvents(
+			tracked.guildId,
+			tracked.owner,
+			tracked.repo,
+			events,
+		)) ?? { ...tracked, enabledEvents: events };
 
 		await interaction.update(
 			v2Update(
@@ -246,9 +241,12 @@ export async function handleEventsComponent(
 			...[...selected].filter((event) => inCategory.has(event)),
 		];
 
-		const updated =
-			(await ctx.repository.updateEvents(tracked.guildId, tracked.owner, tracked.repo, next)) ??
-			{ ...tracked, enabledEvents: next };
+		const updated = (await ctx.repository.updateEvents(
+			tracked.guildId,
+			tracked.owner,
+			tracked.repo,
+			next,
+		)) ?? { ...tracked, enabledEvents: next };
 
 		await interaction.update(
 			v2Update(

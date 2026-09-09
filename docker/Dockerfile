@@ -7,8 +7,8 @@ RUN apk add --no-cache libc6-compat python3 make g++ \
 WORKDIR /app
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile=false
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules

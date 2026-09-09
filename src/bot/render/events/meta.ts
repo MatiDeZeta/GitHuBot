@@ -1,4 +1,5 @@
 import type {
+	CustomPropertyValuesPayload,
 	DeployKeyPayload,
 	GollumPayload,
 	MetaPayload,
@@ -6,8 +7,8 @@ import type {
 	ProjectsV2ItemPayload,
 	RepositoryPayload,
 } from "../../../github/payloads.js";
-import { tx } from "../../../i18n/index.js";
 import type { TranslationKey } from "../../../i18n/index.js";
+import { tx } from "../../../i18n/index.js";
 import { truncate } from "../blocks.js";
 import type { EventTemplate, TemplateField } from "../template.js";
 import {
@@ -183,4 +184,34 @@ export function formatPageBuild(payload: PageBuildPayload): EventTemplate | null
 		timestamp: new Date(),
 		importance: errored ? "high" : "low",
 	};
+}
+
+export function formatCustomPropertyValues(
+	payload: CustomPropertyValuesPayload,
+): EventTemplate | null {
+	const updated = payload.new_property_values ?? [];
+	if (updated.length === 0) return null;
+
+	const bits = repoBits(payload.repository);
+	return {
+		accent: "neutral",
+		icon: "gear",
+		title: tx("title.customPropertyValues"),
+		repo: bits.repo,
+		repoUrl: bits.repoUrl,
+		language: bits.language,
+		actor: actorBits(payload.sender),
+		fields: updated.slice(0, 5).map((property) => ({
+			label: titleText(property.property_name, 40),
+			value: code(formatPropertyValue(property.value)),
+		})),
+		links: links(repositoryLink(bits)),
+		timestamp: new Date(),
+		importance: "low",
+	};
+}
+
+function formatPropertyValue(value: string | string[] | null | undefined): string {
+	if (Array.isArray(value)) return value.join(", ") || "—";
+	return value ?? "—";
 }

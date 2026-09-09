@@ -20,10 +20,7 @@ export function formatFork(payload: ForkPayload): EventTemplate | null {
 		repoUrl: bits.repoUrl,
 		language: bits.language,
 		actor: actorBits(payload.sender),
-		links: links(
-			{ label: tx("link.fork"), url: payload.forkee.html_url },
-			repositoryLink(bits),
-		),
+		links: links({ label: tx("link.fork"), url: payload.forkee.html_url }, repositoryLink(bits)),
 		timestamp: new Date(),
 		importance: "low",
 	};
@@ -112,9 +109,7 @@ export function formatMember(payload: MemberPayload): EventTemplate | null {
 		repoUrl: bits.repoUrl,
 		language: bits.language,
 		actor: actorBits(payload.member),
-		fields: permission
-			? [{ label: tx("field.permission"), value: code(permission) }]
-			: undefined,
+		fields: permission ? [{ label: tx("field.permission"), value: code(permission) }] : undefined,
 		links: links(
 			{ label: tx("link.settings"), url: `${bits.repoUrl}/settings/access` },
 			repositoryLink(bits),

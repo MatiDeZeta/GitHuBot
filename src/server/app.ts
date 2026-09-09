@@ -1,13 +1,14 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import { timingSafeEqual } from "node:crypto";
 import rateLimit from "@fastify/rate-limit";
 import type { Client } from "discord.js";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
+import { type Env, isFullyConfigured, missingConfigKeys } from "../config/env.js";
 import { githubEventToType } from "../config/events.js";
-import { isFullyConfigured, missingConfigKeys, type Env } from "../config/env.js";
 import type { Logger } from "../config/logger.js";
 import { decryptSecret } from "../crypto/secrets.js";
 import type { RepoRepository } from "../db/types.js";
-import { dispatchEvent, type DispatchContext } from "../delivery/dispatch.js";
+import { type DispatchContext, dispatchEvent } from "../delivery/dispatch.js";
 import { verifyGitHubSignature } from "../github/verify.js";
 import { metrics } from "../metrics.js";
 
@@ -31,23 +32,30 @@ declare module "fastify" {
 export async function createServer(ctx: ServerContext): Promise<FastifyInstance> {
 	const app = Fastify({
 		logger: false,
-		bodyLimit: 1_048_576,
+		bodyLimit: ctx.env.WEBHOOK_BODY_LIMIT,
+		...(ctx.env.TRUST_PROXY !== undefined ? { trustProxy: ctx.env.TRUST_PROXY } : {}),
 	});
 
-	app.addContentTypeParser(
-		"application/json",
-		{ parseAs: "string" },
-		(req, body, done) => {
-			const raw = typeof body === "string" ? body : body.toString("utf8");
-			req.rawBody = raw;
-			try {
-				const json = raw.length > 0 ? JSON.parse(raw) : {};
-				done(null, json);
-			} catch (err) {
-				done(err as Error, undefined);
-			}
-		},
-	);
+	// Fastify's default handler echoes the underlying driver's message; scrub it.
+	app.setErrorHandler((err: FastifyError, request, reply) => {
+		const status = err.statusCode ?? 500;
+		if (status >= 500) {
+			ctx.logger.error({ err, url: request.url }, "Unhandled request error");
+			return reply.code(status).send({ error: "Internal server error" });
+		}
+		return reply.code(status).send({ error: err.message });
+	});
+
+	app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
+		const raw = typeof body === "string" ? body : body.toString("utf8");
+		req.rawBody = raw;
+		try {
+			const json = raw.length > 0 ? JSON.parse(raw) : {};
+			done(null, json);
+		} catch (err) {
+			done(err as Error, undefined);
+		}
+	});
 
 	await app.register(rateLimit, {
 		max: 100,
@@ -62,7 +70,10 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		missing: missingConfigKeys(ctx.env),
 	}));
 
-	app.get("/metrics", async () => {
+	app.get("/metrics", async (request, reply) => {
+		if (!metricsTokenMatches(ctx.env.METRICS_TOKEN, header(request, "authorization"))) {
+			return reply.code(401).send({ error: "Unauthorized" });
+		}
 		const snapshot = metrics.snapshot();
 		return {
 			ok: true,
@@ -207,6 +218,18 @@ async function handleWebhook(
 		case "failed":
 			return reply.code(500).send({ error: "Delivery failed" });
 	}
+}
+
+/** Unset token keeps `/metrics` open, matching the historical default. */
+function metricsTokenMatches(
+	expected: string | undefined,
+	authorization: string | undefined,
+): boolean {
+	if (!expected) return true;
+	const presented = authorization?.replace(/^Bearer /i, "") ?? "";
+	const a = Buffer.from(presented);
+	const b = Buffer.from(expected);
+	return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function header(request: FastifyRequest, name: string): string | undefined {

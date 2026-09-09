@@ -33,6 +33,8 @@ export const EVENT_TYPES = [
 	"issue_comment",
 	"label",
 	"milestone",
+	"sub_issues",
+	"issue_dependencies",
 	// ci/cd
 	"workflow_run",
 	"workflow_job",
@@ -54,6 +56,9 @@ export const EVENT_TYPES = [
 	"secret_scanning_alert",
 	"secret_scanning_alert_location",
 	"security_advisory",
+	"repository_advisory",
+	"repository_ruleset",
+	"security_and_analysis",
 	"branch_protection_rule",
 	"branch_protection_configuration",
 	// community
@@ -69,6 +74,7 @@ export const EVENT_TYPES = [
 	"deploy_key",
 	"meta",
 	"page_build",
+	"custom_property_values",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -126,6 +132,8 @@ export const EVENT_META: Record<EventType, EventMeta> = {
 	issue_comment: { category: "issues", defaultOn: false, icon: "comment" },
 	label: { category: "issues", defaultOn: false, icon: "label" },
 	milestone: { category: "issues", defaultOn: false, icon: "milestone" },
+	sub_issues: { category: "issues", defaultOn: false, icon: "issue" },
+	issue_dependencies: { category: "issues", defaultOn: false, icon: "issue" },
 
 	workflow_run: { category: "cicd", defaultOn: false, icon: "workflow" },
 	workflow_job: { category: "cicd", defaultOn: false, icon: "running" },
@@ -147,6 +155,9 @@ export const EVENT_META: Record<EventType, EventMeta> = {
 	secret_scanning_alert: { category: "security", defaultOn: false, icon: "key" },
 	secret_scanning_alert_location: { category: "security", defaultOn: false, icon: "key" },
 	security_advisory: { category: "security", defaultOn: false, icon: "alert" },
+	repository_advisory: { category: "security", defaultOn: false, icon: "alert" },
+	repository_ruleset: { category: "security", defaultOn: false, icon: "shield" },
+	security_and_analysis: { category: "security", defaultOn: false, icon: "shield" },
 	branch_protection_rule: { category: "security", defaultOn: false, icon: "shield" },
 	branch_protection_configuration: { category: "security", defaultOn: false, icon: "shield" },
 
@@ -162,6 +173,7 @@ export const EVENT_META: Record<EventType, EventMeta> = {
 	deploy_key: { category: "meta", defaultOn: false, icon: "key" },
 	meta: { category: "meta", defaultOn: false, icon: "gear" },
 	page_build: { category: "meta", defaultOn: false, icon: "globe" },
+	custom_property_values: { category: "meta", defaultOn: false, icon: "gear" },
 };
 
 export const DEFAULT_ENABLED_EVENTS: EventType[] = EVENT_TYPES.filter(

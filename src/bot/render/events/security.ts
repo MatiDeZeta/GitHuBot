@@ -1,12 +1,15 @@
+import type { AccentKey } from "../../../design/tokens.js";
 import type {
 	BranchProtectionRulePayload,
 	CodeScanningAlertPayload,
 	DependabotAlertPayload,
+	RepositoryAdvisoryPayload,
+	RepositoryRulesetPayload,
 	SecretScanningAlertPayload,
 	SecurityAdvisoryPayload,
+	SecurityAndAnalysisPayload,
 } from "../../../github/payloads.js";
 import { tx } from "../../../i18n/index.js";
-import type { AccentKey } from "../../../design/tokens.js";
 import type { EventTemplate, TemplateField } from "../template.js";
 import {
 	actorBits,
@@ -99,9 +102,7 @@ export function formatDependabotAlert(payload: DependabotAlertPayload): EventTem
 	};
 }
 
-export function formatCodeScanningAlert(
-	payload: CodeScanningAlertPayload,
-): EventTemplate | null {
+export function formatCodeScanningAlert(payload: CodeScanningAlertPayload): EventTemplate | null {
 	const alert = payload.alert;
 	const rule = alert.rule;
 
@@ -239,9 +240,7 @@ export function formatSecretScanningAlertLocation(
 	};
 }
 
-export function formatSecurityAdvisory(
-	payload: SecurityAdvisoryPayload,
-): EventTemplate | null {
+export function formatSecurityAdvisory(payload: SecurityAdvisoryPayload): EventTemplate | null {
 	const advisory = payload.security_advisory;
 	const title =
 		payload.action === "published"
@@ -279,6 +278,130 @@ export function formatSecurityAdvisory(
 		),
 		timestamp: new Date(),
 		importance: "high",
+	};
+}
+
+/** The repository-scoped advisory event; `security_advisory` only reaches GitHub Apps. */
+export function formatRepositoryAdvisory(payload: RepositoryAdvisoryPayload): EventTemplate | null {
+	const advisory = payload.repository_advisory;
+	const title =
+		payload.action === "published"
+			? tx("title.repositoryAdvisory.published")
+			: payload.action === "reported"
+				? tx("title.repositoryAdvisory.reported")
+				: null;
+	if (!title) return null;
+
+	const bits = repoBits(payload.repository);
+	const fields: TemplateField[] = [];
+	if (advisory.severity) {
+		fields.push({ label: tx("field.severity"), value: code(humanizeState(advisory.severity)) });
+	}
+	if (advisory.ghsa_id) fields.push({ label: tx("field.advisory"), value: code(advisory.ghsa_id) });
+	if (advisory.cve_id) {
+		fields.push({ label: tx("field.cve"), value: code(advisory.cve_id), secondary: true });
+	}
+	if (advisory.state) {
+		fields.push({
+			label: tx("field.state"),
+			value: code(humanizeState(advisory.state)),
+			secondary: true,
+		});
+	}
+
+	return {
+		accent: severityAccent(advisory.severity),
+		icon: "alert",
+		title,
+		subtitle: advisory.summary ? titleText(advisory.summary, 180) : undefined,
+		repo: bits.repo,
+		repoUrl: bits.repoUrl,
+		language: bits.language,
+		actor: actorBits(payload.sender),
+		fields,
+		links: links(
+			{ label: tx("link.advisory"), url: advisory.html_url },
+			{ label: tx("link.repository"), url: `${bits.repoUrl}/security/advisories` },
+		),
+		timestamp: new Date(),
+		importance: "high",
+	};
+}
+
+export function formatRepositoryRuleset(payload: RepositoryRulesetPayload): EventTemplate | null {
+	const ruleset = payload.repository_ruleset;
+	const title =
+		payload.action === "created"
+			? tx("title.ruleset.created")
+			: payload.action === "edited"
+				? tx("title.ruleset.edited")
+				: payload.action === "deleted"
+					? tx("title.ruleset.deleted")
+					: null;
+	if (!title) return null;
+
+	const bits = repoBits(payload.repository);
+	const fields: TemplateField[] = [];
+	if (ruleset.target) {
+		fields.push({ label: tx("field.target"), value: code(humanizeState(ruleset.target)) });
+	}
+	if (ruleset.enforcement) {
+		fields.push({
+			label: tx("field.enforcement"),
+			value: code(humanizeState(ruleset.enforcement)),
+		});
+	}
+	if (ruleset.source_type) {
+		fields.push({
+			label: tx("field.scope"),
+			value: code(ruleset.source_type),
+			secondary: true,
+		});
+	}
+
+	return {
+		// An `evaluate`/`disabled` ruleset is not actually protecting anything yet.
+		accent:
+			payload.action === "deleted"
+				? "delete"
+				: ruleset.enforcement === "active"
+					? "security"
+					: "neutral",
+		icon: "shield",
+		title,
+		subtitle: ruleset.name ? code(ruleset.name) : undefined,
+		repo: bits.repo,
+		repoUrl: bits.repoUrl,
+		language: bits.language,
+		actor: actorBits(payload.sender),
+		fields,
+		links: links({ label: tx("link.settings"), url: `${bits.repoUrl}/settings/rules` }),
+		timestamp: new Date(),
+		importance: "normal",
+	};
+}
+
+export function formatSecurityAndAnalysis(
+	payload: SecurityAndAnalysisPayload,
+): EventTemplate | null {
+	const changed = Object.keys(payload.changes?.from?.security_and_analysis ?? {});
+	const bits = repoBits(payload.repository);
+
+	return {
+		accent: "security",
+		icon: "shield",
+		title: tx("title.securityAndAnalysis"),
+		subtitle: changed.length > 0 ? code(changed.map(humanizeState).join(", ")) : undefined,
+		repo: bits.repo,
+		repoUrl: bits.repoUrl,
+		language: bits.language,
+		actor: actorBits(payload.sender),
+		links: links({
+			label: tx("link.settings"),
+			url: `${bits.repoUrl}/settings/security_analysis`,
+		}),
+		timestamp: new Date(),
+		importance: "normal",
 	};
 }
 

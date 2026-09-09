@@ -22,12 +22,6 @@
 		}
 	},
 	"files": {
-		"includes": [
-			"**",
-			"!**/dist",
-			"!**/node_modules",
-			"!**/drizzle",
-			"!**/coverage"
-		]
+		"includes": ["**", "!**/dist", "!**/node_modules", "!**/drizzle", "!**/coverage"]
 	}
 }

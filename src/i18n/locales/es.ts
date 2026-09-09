@@ -22,7 +22,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"common.truncated": "_…truncado_",
 	"common.error.generic": "Algo salió mal al procesar esa interacción.",
 	"common.error.guildOnly": "Este comando solo se puede usar en un servidor.",
-	"common.error.notAllowed": "No tienes permiso para usar los comandos de GitHuBot en esta instancia.",
+	"common.error.notAllowed":
+		"No tienes permiso para usar los comandos de GitHuBot en esta instancia.",
 	"common.error.invalidSelection": "Selección no válida.",
 	"common.error.repoNotFound": "`{repo}` no está siendo rastreado en este servidor.",
 	"common.error.unknownSubcommand": "Subcomando desconocido.",
@@ -109,7 +110,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"event.branch_protection_rule.label": "Regla de branch protection",
 	"event.branch_protection_rule.description": "Reglas de protección creadas o editadas",
 	"event.branch_protection_configuration.label": "Config. de branch protection",
-	"event.branch_protection_configuration.description": "Ajustes de protección a nivel de repositorio",
+	"event.branch_protection_configuration.description":
+		"Ajustes de protección a nivel de repositorio",
 	"event.fork.label": "Fork",
 	"event.fork.description": "Alguien hizo fork del repositorio",
 	"event.star.label": "Star",
@@ -358,7 +360,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	/* --------------------------------------------------- command: /repo -- */
 	"cmd.repo.description": "Administra los repositorios de GitHub rastreados en este servidor",
 	"cmd.repo.option.repository": "owner/repo",
-	"cmd.repo.add.description": "Rastrear un repositorio de GitHub (configuración manual del webhook)",
+	"cmd.repo.add.description":
+		"Rastrear un repositorio de GitHub (configuración manual del webhook)",
 	"cmd.repo.add.option.channel": "Canal para los mensajes del changelog",
 	"cmd.repo.remove.description": "Dejar de rastrear un repositorio",
 	"cmd.repo.list.description": "Listar los repositorios rastreados en este servidor",
@@ -366,7 +369,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"cmd.repo.channel.description": "Cambiar el canal de salida predeterminado de un repositorio",
 	"cmd.repo.channel.option.channel": "Nuevo canal de destino",
 	"cmd.repo.webhookInfo.description": "Mostrar Payload URL y secret del webhook (efímero)",
-	"cmd.repo.regenerateSecret.description": "Generar un nuevo secret del webhook (actualízalo en GitHub)",
+	"cmd.repo.regenerateSecret.description":
+		"Generar un nuevo secret del webhook (actualízalo en GitHub)",
 	"cmd.repo.pause.description": "Pausar las publicaciones sin eliminar el webhook",
 	"cmd.repo.resume.description": "Reanudar las publicaciones de un repositorio pausado",
 	"cmd.repo.test.description": "Publicar un mensaje de prueba para verificar la configuración",
@@ -430,13 +434,15 @@ export const es: { [K in keyof typeof en]?: string } = {
 
 	/* --------------------------------------------------- /repo: events -- */
 	"repo.events.heading": "## Eventos de `{repo}`",
-	"repo.events.intro": "Elige una categoría para activar o desactivar eventos. {count} activos ahora.",
+	"repo.events.intro":
+		"Elige una categoría para activar o desactivar eventos. {count} activos ahora.",
 	"repo.events.categoryPlaceholder": "Elige una categoría",
 	"repo.events.togglePlaceholder": "Alternar eventos de {category}",
 	"repo.events.categoryHeading": "## {category} · `{repo}`",
 	"repo.events.categorySummary": "{enabled} de {total} activos en esta categoría.",
 	"repo.events.back": "Volver a categorías",
-	"repo.events.updated": "Se actualizó **{category}** para `{repo}`. {count} eventos activos en total.",
+	"repo.events.updated":
+		"Se actualizó **{category}** para `{repo}`. {count} eventos activos en total.",
 	"repo.events.presetsLabel": "Preajustes",
 	"repo.events.preset.minimal": "Mínimo",
 	"repo.events.preset.standard": "Estándar",
@@ -461,7 +467,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 		"_El secret anterior sigue siendo aceptado hasta que GitHub firme una entrega con el nuevo, así que no se pierde nada durante el cambio._",
 
 	/* --------------------------------------------- /repo: pause/resume -- */
-	"repo.pause.done": "Se pausó `{repo}`. Las entregas se aceptan pero no se publican hasta que reanudes.",
+	"repo.pause.done":
+		"Se pausó `{repo}`. Las entregas se aceptan pero no se publican hasta que reanudes.",
 	"repo.pause.already": "`{repo}` ya está pausado.",
 	"repo.resume.done": "Se reanudó `{repo}`.",
 	"repo.resume.already": "`{repo}` no está pausado.",
@@ -474,10 +481,16 @@ export const es: { [K in keyof typeof en]?: string } = {
 	/* -------------------------------------------------- /repo: filters -- */
 	"repo.filters.heading": "## Filtros de `{repo}`",
 	"repo.filters.modalTitle": "Filtros",
-	"repo.filters.branchInclude": "Solo estas branches (separadas por coma)",
-	"repo.filters.branchExclude": "Nunca estas branches (separadas por coma)",
-	"repo.filters.labels": "Solo estos labels de issue/PR",
-	"repo.filters.ignoredActors": "Ignorar estos autores (usa `bot` para todos los bots)",
+	"repo.filters.branchInclude": "Solo estas branches",
+	"repo.filters.branchIncludeHint": "Globs separados por coma. Vacío permite todas las branches.",
+	"repo.filters.branchExclude": "Nunca estas branches",
+	"repo.filters.branchExcludeHint":
+		"Globs separados por coma; se evalúan antes de la lista de permitidas.",
+	"repo.filters.labels": "Solo estos labels",
+	"repo.filters.labelsHint": "Solo aplica a issues, pull requests y sus comentarios.",
+	"repo.filters.ignoredActors": "Ignorar estos autores",
+	"repo.filters.ignoredActorsHint":
+		"Logins o globs. El literal `bot` descarta todas las cuentas bot.",
 	"repo.filters.placeholderBranches": "main, release/*",
 	"repo.filters.placeholderLabels": "bug, priority:high",
 	"repo.filters.placeholderActors": "bot, dependabot[bot]",
@@ -487,8 +500,10 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.filters.summaryEmpty": "Sin filtros — se entrega todo lo que esté activo.",
 
 	/* ---------------------------------------------------- /repo: route -- */
-	"repo.route.set": "Los eventos de **{category}** de `{repo}` ahora se publicarán en <#{channel}>.",
-	"repo.route.cleared": "Los eventos de **{category}** de `{repo}` ahora usan el canal predeterminado.",
+	"repo.route.set":
+		"Los eventos de **{category}** de `{repo}` ahora se publicarán en <#{channel}>.",
+	"repo.route.cleared":
+		"Los eventos de **{category}** de `{repo}` ahora usan el canal predeterminado.",
 	"repo.route.badChannel": "Necesito permiso para ver y enviar mensajes en <#{channel}>.",
 
 	/* ------------------------------------------------- /repo: mentions -- */
@@ -559,7 +574,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 
 	/* ----------------------------------------------------------- /about -- */
 	"about.heading": "## GitHuBot v{version}",
-	"about.tagline": "Changelogs hermosos de Discord para la actividad de GitHub — sin credenciales de GitHub.",
+	"about.tagline":
+		"Changelogs hermosos de Discord para la actividad de GitHub — sin credenciales de GitHub.",
 	"about.license": "**Licencia**: MIT",
 	"about.runtime": "**Runtime**: Node {node} · discord.js {djs}",
 	"about.repository": "**Código fuente**: {url}",

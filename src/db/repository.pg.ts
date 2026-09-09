@@ -45,10 +45,7 @@ export function createPgRepository(db: PgDb): RepoRepository {
 		},
 
 		async getGuildSettings(guildId): Promise<GuildSettings | null> {
-			const [row] = await db
-				.select()
-				.from(schema.guilds)
-				.where(eq(schema.guilds.guildId, guildId));
+			const [row] = await db.select().from(schema.guilds).where(eq(schema.guilds.guildId, guildId));
 			return row ? mapGuildRow(row) : null;
 		},
 
@@ -58,9 +55,7 @@ export function createPgRepository(db: PgDb): RepoRepository {
 				.update(schema.guilds)
 				.set({
 					...(settings.locale !== undefined ? { locale: settings.locale } : {}),
-					...(settings.defaultTheme !== undefined
-						? { defaultTheme: settings.defaultTheme }
-						: {}),
+					...(settings.defaultTheme !== undefined ? { defaultTheme: settings.defaultTheme } : {}),
 					...(settings.defaultDisplayMode !== undefined
 						? { defaultDisplayMode: settings.defaultDisplayMode }
 						: {}),
@@ -189,13 +184,14 @@ export function createPgRepository(db: PgDb): RepoRepository {
 		},
 
 		async tryRecordDelivery(deliveryId, trackingId) {
-			const existing = await db
-				.select()
-				.from(schema.deliveries)
-				.where(eq(schema.deliveries.deliveryId, deliveryId));
-			if (existing.length > 0) return false;
-			await db.insert(schema.deliveries).values({ deliveryId, trackingId });
-			return true;
+			// Single atomic statement: a concurrent redelivery of the same X-GitHub-Delivery
+			// loses the insert race and reads back as a duplicate instead of throwing.
+			const rows = await db
+				.insert(schema.deliveries)
+				.values({ deliveryId, trackingId })
+				.onConflictDoNothing()
+				.returning({ deliveryId: schema.deliveries.deliveryId });
+			return rows.length > 0;
 		},
 
 		async recordDeliveryResult(result: DeliveryResult) {

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
@@ -42,10 +42,7 @@ function applySqliteMigrations(databaseUrl: string): void {
 			if (applied.has(file)) continue;
 			const sql = readFileSync(join(migrationsDir, file), "utf8");
 			db.exec(sql);
-			db.prepare("INSERT INTO __migrations (id, applied_at) VALUES (?, ?)").run(
-				file,
-				Date.now(),
-			);
+			db.prepare("INSERT INTO __migrations (id, applied_at) VALUES (?, ?)").run(file, Date.now());
 		}
 		db.close();
 	} catch (err) {

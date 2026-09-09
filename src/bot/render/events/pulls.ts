@@ -1,3 +1,4 @@
+import type { AccentKey, IconKey } from "../../../design/tokens.js";
 import type {
 	PullRequestPayload,
 	PullRequestReviewCommentPayload,
@@ -5,7 +6,6 @@ import type {
 	PullRequestReviewThreadPayload,
 } from "../../../github/payloads.js";
 import { tx } from "../../../i18n/index.js";
-import type { AccentKey, IconKey } from "../../../design/tokens.js";
 import type { EventTemplate, TemplateField } from "../template.js";
 import {
 	actorBits,
@@ -102,9 +102,7 @@ export function formatPullRequest(payload: PullRequestPayload): EventTemplate | 
 	};
 }
 
-export function formatPullRequestReview(
-	payload: PullRequestReviewPayload,
-): EventTemplate | null {
+export function formatPullRequestReview(payload: PullRequestReviewPayload): EventTemplate | null {
 	const { action, review, pull_request: pr } = payload;
 	if (action !== "submitted" && action !== "dismissed") return null;
 

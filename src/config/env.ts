@@ -61,11 +61,33 @@ function jsonArray(value: unknown): unknown {
 	}
 }
 
+/**
+ * Fastify's numeric `trustProxy` (the "behind N hops" form) is the shape affected by
+ * GHSA-3m5p-2c4r-xxw2, so only booleans and explicit IP/CIDR/preset lists are accepted.
+ */
+const trustProxySchema = z
+	.string()
+	.refine((value) => !/^\d+$/.test(value.trim()), {
+		error:
+			"TRUST_PROXY must be true/false or a comma-separated IP/CIDR list (e.g. 'loopback, 10.0.0.0/8'). " +
+			"A bare hop count is rejected: it allows X-Forwarded-For spoofing (GHSA-3m5p-2c4r-xxw2).",
+	})
+	.transform((value): boolean | string => {
+		const trimmed = value.trim();
+		if (/^(true|yes|1)$/i.test(trimmed)) return true;
+		if (/^(false|no|0)$/i.test(trimmed)) return false;
+		return trimmed;
+	});
+
+/** GitHub declines to send webhook payloads above 25 MiB, so nothing larger is a real delivery. */
+const GITHUB_MAX_PAYLOAD_BYTES = 25 * 1024 * 1024;
+
 /** Discord only renders the purple Streaming badge for these hosts. */
-const streamUrlSchema = z.url().refine(
-	(value) => /^(https?:\/\/)?(www\.)?(twitch\.tv|youtube\.com|youtu\.be)\//i.test(value),
-	{ error: "PRESENCE_STREAM_URL must be a twitch.tv or youtube.com URL" },
-);
+const streamUrlSchema = z
+	.url()
+	.refine((value) => /^(https?:\/\/)?(www\.)?(twitch\.tv|youtube\.com|youtu\.be)\//i.test(value), {
+		error: "PRESENCE_STREAM_URL must be a twitch.tv or youtube.com URL",
+	});
 
 const presenceEntrySchema = z.object({
 	type: z
@@ -88,9 +110,21 @@ const envSchema = z.object({
 	DATABASE_URL: z.string().default("file:./data/githubot.db"),
 	PORT: z.coerce.number().int().positive().default(3000),
 	HOST: z.string().default("0.0.0.0"),
-	LOG_LEVEL: z
-		.enum(["fatal", "error", "warn", "info", "debug", "trace"])
-		.default("info"),
+	/**
+	 * Required for per-IP rate limiting to mean anything behind Railway/Docker/nginx:
+	 * without it `request.ip` is the proxy's address for every caller.
+	 */
+	TRUST_PROXY: z.preprocess(emptyToUndefined, trustProxySchema.optional()),
+	/** Raise/lower the accepted GitHub delivery size; larger values buffer more per request. */
+	WEBHOOK_BODY_LIMIT: z.coerce
+		.number()
+		.int()
+		.positive()
+		.max(GITHUB_MAX_PAYLOAD_BYTES)
+		.default(GITHUB_MAX_PAYLOAD_BYTES),
+	/** When set, `/metrics` requires `Authorization: Bearer <token>`. `/health` stays public. */
+	METRICS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(16).optional()),
+	LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 	NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
 	/** Optional Streaming activity target; the activity is skipped when unset. */
@@ -132,12 +166,18 @@ export function resetEnvCache(): void {
 	cached = undefined;
 }
 
+/** JSON env vars degrade to unset rather than crashing boot, which otherwise hides operator typos. */
+const LENIENT_JSON_KEYS = ["EMOJI_OVERRIDES", "PRESENCE_ROTATION"] as const;
+
+export function envWarnings(env: Env, source: NodeJS.ProcessEnv = process.env): string[] {
+	return LENIENT_JSON_KEYS.filter(
+		(key) => typeof emptyToUndefined(source[key]) === "string" && env[key] === undefined,
+	).map((key) => `${key} was set but could not be parsed as JSON — ignoring it`);
+}
+
 export function isFullyConfigured(env: Env): env is FullyConfiguredEnv {
 	return Boolean(
-		env.DISCORD_TOKEN &&
-			env.DISCORD_CLIENT_ID &&
-			env.MASTER_KEY &&
-			env.PUBLIC_WEBHOOK_URL,
+		env.DISCORD_TOKEN && env.DISCORD_CLIENT_ID && env.MASTER_KEY && env.PUBLIC_WEBHOOK_URL,
 	);
 }
 
