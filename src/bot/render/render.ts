@@ -75,12 +75,13 @@ function renderDetailed(
 		thumbnailSection(
 			headerLines.map((line) => truncate(line, HEADER_BUDGET)),
 			tpl.actor?.avatarUrl,
+			avatarAlt(tpl, opts.locale),
 		),
 	);
 
 	let remaining = MAX_TEXT_CHARS - headerLines.join("\n").length;
 
-	const body = tpl.body?.trim();
+	const body = bodyText(tpl, opts.locale);
 	if (body) {
 		const rendered = truncate(body, Math.min(BODY_BUDGET, Math.max(remaining - 200, 0)));
 		if (rendered) {
@@ -136,7 +137,8 @@ function renderCompact(
 	const head = `${parts.glyph} **${parts.title}** · ${parts.repoLink}`;
 	const lines = [truncate(head, HEADER_BUDGET)];
 
-	const detail = [parts.subtitle, tpl.body ? firstLine(tpl.body) : undefined]
+	const body = bodyText(tpl, opts.locale);
+	const detail = [parts.subtitle, body ? firstLine(body) : undefined]
 		.filter((value): value is string => Boolean(value && value.length > 0))
 		.join(" — ");
 	if (detail) lines.push(truncate(detail, COMPACT_BODY_BUDGET));
@@ -144,7 +146,9 @@ function renderCompact(
 	const meta = metaLine(tpl, opts.locale);
 	if (meta) lines.push(meta);
 
-	c.addSectionComponents(thumbnailSection(lines, tpl.actor?.avatarUrl));
+	c.addSectionComponents(
+		thumbnailSection(lines, tpl.actor?.avatarUrl, avatarAlt(tpl, opts.locale)),
+	);
 
 	const buttons = linkButtons(tpl, opts.locale, 3);
 	if (buttons.length > 0) {
@@ -152,6 +156,20 @@ function renderCompact(
 	}
 
 	return buildMessage([c]);
+}
+
+function avatarAlt(tpl: EventTemplate, locale: AppLocale): string | undefined {
+	return tpl.actor?.login ? t(locale, "common.avatarOf", { user: tpl.actor.login }) : undefined;
+}
+
+function bodyText(tpl: EventTemplate, locale: AppLocale): string | undefined {
+	if (tpl.body === undefined) return undefined;
+	const lines = Array.isArray(tpl.body) ? tpl.body : [tpl.body];
+	const text = lines
+		.map((line) => resolveText(locale, line))
+		.join("\n")
+		.trim();
+	return text || undefined;
 }
 
 function metaLine(tpl: EventTemplate, locale: AppLocale): string | undefined {

@@ -51,15 +51,22 @@ export function row<T extends ButtonBuilder>(...buttons: T[]): ActionRowBuilder<
 	return new ActionRowBuilder<T>().addComponents(...buttons.slice(0, MAX_ROW_BUTTONS));
 }
 
-/** A Section must carry an accessory, so callers always get a thumbnail. */
-export function thumbnailSection(lines: string[], thumbnailUrl?: string): SectionBuilder {
+/**
+ * A Section must carry an accessory, so callers always get a thumbnail. `alt` becomes
+ * the thumbnail's description, which screen readers announce instead of "image".
+ */
+export function thumbnailSection(
+	lines: string[],
+	thumbnailUrl?: string,
+	alt?: string,
+): SectionBuilder {
 	const section = new SectionBuilder();
 	for (const line of lines.slice(0, MAX_SECTION_TEXTS)) {
 		section.addTextDisplayComponents(text(line));
 	}
-	section.setThumbnailAccessory(
-		new ThumbnailBuilder().setURL(safeImageUrl(thumbnailUrl) ?? FALLBACK_AVATAR),
-	);
+	const thumbnail = new ThumbnailBuilder().setURL(safeImageUrl(thumbnailUrl) ?? FALLBACK_AVATAR);
+	if (alt) thumbnail.setDescription(truncate(stripInvisible(alt), 1024));
+	section.setThumbnailAccessory(thumbnail);
 	return section;
 }
 
@@ -111,9 +118,27 @@ export function stripInvisible(value: string): string {
 	return value.replace(INVISIBLE_CHARS, "");
 }
 
-/** Escapes Discord markdown so issue titles cannot break the layout. */
+/**
+ * `<@&id>`, `<#id>` and `</cmd:id>` render as role, channel and command pills. Pings
+ * are already blocked by `allowedMentions`, but a pill alone can still pose as a
+ * real server role ("@Admins, please verify here"), so untrusted text never gets one.
+ */
+function neutralizeMentions(value: string): string {
+	return value.replace(/<(?=[@#/])/g, "\\<");
+}
+
+/**
+ * Escapes Discord markdown so issue titles, commit messages and names cannot break the
+ * layout. Square brackets are included: `[label](url)` is a masked link, which lets
+ * untrusted text put attacker-chosen words on an attacker-chosen URL.
+ */
 export function escapeMarkdown(value: string): string {
-	return stripInvisible(value).replace(/([*_`~|\\>])/g, "\\$1");
+	return neutralizeMentions(stripInvisible(value).replace(/([*_`~|\\>[\]])/g, "\\$1"));
+}
+
+/** Undoes our own escaping for places Discord shows as plain text, like thread names. */
+export function plainText(value: string): string {
+	return value.replace(/\\([*_`~|\\<>[\]#])/g, "$1").replace(/`/g, "");
 }
 
 /**
@@ -123,9 +148,13 @@ export function escapeMarkdown(value: string): string {
  * renders as a heading even inside a blockquote and can impersonate our own headings.
  */
 export function neutralizeBodyMarkdown(value: string): string {
-	return stripInvisible(value)
-		.replace(/([[\]])/g, "\\$1")
-		.replace(/^(\s*)(#{1,3})(\s)/gm, "$1\\$2$3");
+	return neutralizeMentions(
+		stripInvisible(value)
+			.replace(/([[\]])/g, "\\$1")
+			.replace(/^(\s*)(#{1,3})(\s)/gm, "$1\\$2$3")
+			// `-# text` is subtext; like a heading it could pass for our own metadata line.
+			.replace(/^(\s*)-#(\s)/gm, "$1\\-#$2"),
+	);
 }
 
 /** Only http(s) URLs are accepted by Discord's media components. */

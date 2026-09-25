@@ -4,7 +4,8 @@ import { en } from "./locales/en.js";
 import { es } from "./locales/es.js";
 
 export type TranslationKey = keyof typeof en;
-export type TParams = Record<string, string | number>;
+/** A placeholder value may itself be translatable, e.g. a CI state inside a title. */
+export type TParams = Record<string, string | number | { key: TranslationKey; params?: TParams }>;
 
 /** Base of any `<base>.one` / `<base>.other` pair, for `tp()`. */
 export type PluralKey = {
@@ -65,18 +66,24 @@ export function resolveLocale(
 	return DEFAULT_LOCALE;
 }
 
-function interpolate(template: string, params?: TParams): string {
+function interpolate(locale: AppLocale | undefined, template: string, params?: TParams): string {
 	if (!params) return template;
 	return template.replace(/\{(\w+)\}/g, (match, name: string) => {
 		const value = params[name];
-		return value === undefined ? match : String(value);
+		if (value === undefined) return match;
+		return typeof value === "object" ? t(locale, value.key, value.params) : String(value);
 	});
 }
 
 export function t(locale: AppLocale | undefined, key: TranslationKey, params?: TParams): string {
 	const catalog = locale ? CATALOGS[locale] : undefined;
 	const template = catalog?.[key] ?? en[key];
-	return interpolate(template, params);
+	return interpolate(locale, template, params);
+}
+
+/** Narrows a computed key (such as `state.${value}`) to one the catalog defines. */
+export function isTranslationKey(key: string): key is TranslationKey {
+	return Object.hasOwn(en, key);
 }
 
 /** Plural-aware lookup: picks `<base>.one` when `count === 1`, else `<base>.other`. */

@@ -3,8 +3,7 @@ import type {
 	CreateDeletePayload,
 	PushPayload,
 } from "../../../github/payloads.js";
-import { tx } from "../../../i18n/index.js";
-import { truncate } from "../blocks.js";
+import { type I18nText, tx } from "../../../i18n/index.js";
 import type { EventTemplate } from "../template.js";
 import {
 	actorBits,
@@ -28,22 +27,24 @@ export function formatPush(payload: PushPayload): EventTemplate | null {
 	const branch = shortRef(payload.ref);
 	const shown = commits.slice(0, MAX_COMMIT_LINES);
 
-	const commitLines = shown.map((commit) => {
+	// Commit messages and author names are free text from whoever wrote the commit —
+	// possibly an outside contributor — so they get the same escaping as titles.
+	const commitLines: I18nText[] = shown.map((commit) => {
 		const sha = commit.id.slice(0, 7);
-		const message = truncate(commit.message.split(/\r?\n/)[0] ?? "", 90);
+		const message = titleText(commit.message.split(/\r?\n/)[0] ?? "", 90);
 		const author = commit.author?.username ?? commit.author?.name;
-		const suffix = author ? ` — ${author}` : "";
+		const suffix = author ? ` — ${titleText(author, 60)}` : "";
 		return `[\`${sha}\`](${commit.url}) ${message}${suffix}`;
 	});
 
 	if (commits.length > shown.length) {
-		commitLines.push(`_…and ${commits.length - shown.length} more_`);
+		commitLines.push(tx("common.andMore", { count: commits.length - shown.length }));
 	}
 
 	return {
 		accent: "push",
 		icon: payload.forced ? "alert" : "push",
-		title: tx(payload.forced ? "title.push.forced" : "title.push", { branch }),
+		title: tx(payload.forced ? "title.push.forced" : "title.push", { branch: code(branch) }),
 		subtitle: tx(commits.length === 1 ? "count.commits.one" : "count.commits.other", {
 			count: commits.length,
 		}),
@@ -51,7 +52,7 @@ export function formatPush(payload: PushPayload): EventTemplate | null {
 		repoUrl: bits.repoUrl,
 		language: bits.language,
 		actor: actorBits(payload.sender),
-		body: commitLines.join("\n"),
+		body: commitLines,
 		links: links(
 			{ label: tx("link.compare"), url: payload.compare },
 			{ label: tx("link.branch"), url: `${bits.repoUrl}/tree/${encodeURIComponent(branch)}` },

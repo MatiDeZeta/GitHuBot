@@ -1,4 +1,5 @@
 import { type Client, type MessageCreateOptions, TextDisplayBuilder } from "discord.js";
+import { plainText } from "../bot/render/blocks.js";
 import { buildEventTemplate } from "../bot/render/events/index.js";
 import { type RenderOptions, renderTemplate } from "../bot/render/render.js";
 import type { EventTemplate } from "../bot/render/template.js";
@@ -103,7 +104,8 @@ export async function deliverTemplate(
 		allowedMentions: mentions.allowedMentions,
 	};
 
-	const threadName = `${resolveText(options.locale, template.title)} · ${template.repo}`;
+	// Thread names are plain text, so markdown escapes and code ticks would show literally.
+	const threadName = plainText(`${resolveText(options.locale, template.title)} · ${template.repo}`);
 
 	try {
 		await send(route.target, message, threadName);

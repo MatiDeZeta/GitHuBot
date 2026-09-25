@@ -14,10 +14,11 @@ import type { EventTemplate, TemplateField } from "../template.js";
 import {
 	actorBits,
 	code,
-	humanizeState,
+	codeText,
 	links,
 	repoBits,
 	repositoryLink,
+	stateText,
 	titleText,
 } from "./common.js";
 
@@ -65,7 +66,7 @@ export function formatDependabotAlert(payload: DependabotAlertPayload): EventTem
 
 	const fields: TemplateField[] = [];
 	if (advisory?.severity) {
-		fields.push({ label: tx("field.severity"), value: code(humanizeState(advisory.severity)) });
+		fields.push({ label: tx("field.severity"), value: codeText(stateText(advisory.severity)) });
 	}
 	const pkg = alert.dependency?.package;
 	if (pkg?.name) {
@@ -135,7 +136,7 @@ export function formatCodeScanningAlert(payload: CodeScanningAlertPayload): Even
 	if (rule?.id) fields.push({ label: tx("field.rule"), value: code(rule.id) });
 	const severity = rule?.security_severity_level ?? rule?.severity;
 	if (severity) {
-		fields.push({ label: tx("field.severity"), value: code(humanizeState(severity)) });
+		fields.push({ label: tx("field.severity"), value: codeText(stateText(severity)) });
 	}
 	const path = alert.most_recent_instance?.location?.path;
 	if (path) fields.push({ label: tx("field.path"), value: code(path), secondary: true });
@@ -191,7 +192,7 @@ export function formatSecretScanningAlert(
 	if (alert.resolution) {
 		fields.push({
 			label: tx("field.resolution"),
-			value: code(humanizeState(alert.resolution)),
+			value: codeText(stateText(alert.resolution)),
 			secondary: true,
 		});
 	}
@@ -255,7 +256,7 @@ export function formatSecurityAdvisory(payload: SecurityAdvisoryPayload): EventT
 	const bits = repoBits(payload.repository);
 	const fields: TemplateField[] = [];
 	if (advisory.severity) {
-		fields.push({ label: tx("field.severity"), value: code(humanizeState(advisory.severity)) });
+		fields.push({ label: tx("field.severity"), value: codeText(stateText(advisory.severity)) });
 	}
 	if (advisory.ghsa_id) fields.push({ label: tx("field.advisory"), value: code(advisory.ghsa_id) });
 	if (advisory.cve_id) {
@@ -295,7 +296,7 @@ export function formatRepositoryAdvisory(payload: RepositoryAdvisoryPayload): Ev
 	const bits = repoBits(payload.repository);
 	const fields: TemplateField[] = [];
 	if (advisory.severity) {
-		fields.push({ label: tx("field.severity"), value: code(humanizeState(advisory.severity)) });
+		fields.push({ label: tx("field.severity"), value: codeText(stateText(advisory.severity)) });
 	}
 	if (advisory.ghsa_id) fields.push({ label: tx("field.advisory"), value: code(advisory.ghsa_id) });
 	if (advisory.cve_id) {
@@ -304,7 +305,7 @@ export function formatRepositoryAdvisory(payload: RepositoryAdvisoryPayload): Ev
 	if (advisory.state) {
 		fields.push({
 			label: tx("field.state"),
-			value: code(humanizeState(advisory.state)),
+			value: codeText(stateText(advisory.state)),
 			secondary: true,
 		});
 	}
@@ -343,12 +344,12 @@ export function formatRepositoryRuleset(payload: RepositoryRulesetPayload): Even
 	const bits = repoBits(payload.repository);
 	const fields: TemplateField[] = [];
 	if (ruleset.target) {
-		fields.push({ label: tx("field.target"), value: code(humanizeState(ruleset.target)) });
+		fields.push({ label: tx("field.target"), value: codeText(stateText(ruleset.target)) });
 	}
 	if (ruleset.enforcement) {
 		fields.push({
 			label: tx("field.enforcement"),
-			value: code(humanizeState(ruleset.enforcement)),
+			value: codeText(stateText(ruleset.enforcement)),
 		});
 	}
 	if (ruleset.source_type) {
@@ -391,7 +392,10 @@ export function formatSecurityAndAnalysis(
 		accent: "security",
 		icon: "shield",
 		title: tx("title.securityAndAnalysis"),
-		subtitle: changed.length > 0 ? code(changed.map(humanizeState).join(", ")) : undefined,
+		subtitle:
+			changed.length > 0
+				? code(changed.map((name) => name.replace(/_/g, " ")).join(", "))
+				: undefined,
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
 		language: bits.language,
@@ -441,7 +445,7 @@ export function formatBranchProtectionConfiguration(
 	return {
 		accent: "security",
 		icon: "shield",
-		title: tx("title.branchProtectionConfig", { action: humanizeState(payload.action) }),
+		title: tx("title.branchProtectionConfig", { action: stateText(payload.action) }),
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
 		language: bits.language,
