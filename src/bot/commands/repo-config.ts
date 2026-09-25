@@ -14,7 +14,7 @@ import {
 	type EventType,
 	eventTypeSchema,
 } from "../../config/events.js";
-import type { RepoFilters } from "../../db/types.js";
+import type { RepoFilters, RepoStyleInput } from "../../db/types.js";
 import { deliverTemplate, renderOptionsFor } from "../../delivery/dispatch.js";
 import { parseFilterList } from "../../delivery/filters.js";
 import { resolveChannelId } from "../../delivery/routing.js";
@@ -22,13 +22,15 @@ import {
 	type AppLocale,
 	categoryLabel,
 	isAppLocale,
+	localizations,
 	SUPPORTED_LOCALES,
+	type TranslationKey,
 	t,
 } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
 import { sampleTemplate } from "../render/samples.js";
-import { isDisplayMode } from "../render/template.js";
-import { isThemeId } from "../render/theme.js";
+import { DISPLAY_MODES, type DisplayMode, isDisplayMode } from "../render/template.js";
+import { isThemeId, THEME_IDS, type ThemeId } from "../render/theme.js";
 import {
 	ephemeralText,
 	ephemeralTextEdit,
@@ -210,26 +212,41 @@ export async function handleStyle(
 	const tracked = await requireTrackedRepo(ctx, interaction, locale);
 	if (!tracked) return;
 
+	// An omitted option keeps the current value, and `inherit` clears the override so
+	// the server or instance default applies again. Writing the effective default
+	// here would pin it, and a later DEFAULT_THEME change would never reach the repo.
 	const rawTheme = interaction.options.getString("theme");
 	const rawMode = interaction.options.getString("mode");
-	const theme = isThemeId(rawTheme) ? rawTheme : (tracked.theme ?? ctx.renderDefaults.theme);
-	const mode = isDisplayMode(rawMode) ? rawMode : (tracked.displayMode ?? ctx.renderDefaults.mode);
+	const style: RepoStyleInput = {};
+	if (rawTheme === INHERIT) style.theme = null;
+	else if (isThemeId(rawTheme)) style.theme = rawTheme;
+	if (rawMode === INHERIT) style.displayMode = null;
+	else if (isDisplayMode(rawMode)) style.displayMode = rawMode;
 
-	await ctx.repository.updateStyle(tracked.guildId, tracked.owner, tracked.repo, {
-		theme,
-		displayMode: mode,
-	});
+	const changed = Object.keys(style).length > 0;
+	const updated = changed
+		? ((await ctx.repository.updateStyle(tracked.guildId, tracked.owner, tracked.repo, style)) ??
+			tracked)
+		: tracked;
+
+	const { settings } = await guildContext(ctx, interaction);
+	const effective = renderOptionsFor(updated, settings, ctx.renderDefaults);
+	const label = (key: TranslationKey, inherited: boolean) =>
+		inherited ? t(locale, "repo.style.inherited", { value: t(locale, key) }) : t(locale, key);
 
 	await interaction.reply(
 		ephemeralText(
-			t(locale, "repo.style.saved", {
-				repo: slugOf(tracked),
-				theme: t(locale, THEME_LABELS[theme]),
-				mode: t(locale, MODE_LABELS[mode]),
+			t(locale, changed ? "repo.style.saved" : "repo.style.current", {
+				repo: slugOf(updated),
+				theme: label(THEME_LABELS[effective.theme], updated.theme === null),
+				mode: label(MODE_LABELS[effective.mode], updated.displayMode === null),
 			}),
 		),
 	);
 }
+
+/** Choice value that clears a repository override. */
+const INHERIT = "inherit";
 
 const THEME_LABELS = {
 	default: "repo.style.themeDefault",
@@ -237,12 +254,29 @@ const THEME_LABELS = {
 	neon: "repo.style.themeNeon",
 	mono: "repo.style.themeMono",
 	language: "repo.style.themeLanguage",
-} as const;
+} as const satisfies Record<ThemeId, TranslationKey>;
 
 const MODE_LABELS = {
 	detailed: "repo.style.modeDetailed",
 	compact: "repo.style.modeCompact",
-} as const;
+} as const satisfies Record<DisplayMode, TranslationKey>;
+
+function localizedChoice(key: TranslationKey, value: string) {
+	return { name: t("en", key), name_localizations: localizations(key), value };
+}
+
+const INHERIT_CHOICE = localizedChoice("repo.style.inherit", INHERIT);
+
+/** Theme choices with translated names, plus `inherit` to clear the override. */
+export const THEME_CHOICES = [
+	INHERIT_CHOICE,
+	...THEME_IDS.map((id) => localizedChoice(THEME_LABELS[id], id)),
+];
+
+export const MODE_CHOICES = [
+	INHERIT_CHOICE,
+	...DISPLAY_MODES.map((mode) => localizedChoice(MODE_LABELS[mode], mode)),
+];
 
 export async function handleHealth(
 	interaction: ChatInputCommandInteraction,

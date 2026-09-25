@@ -16,8 +16,6 @@ import {
 } from "../../crypto/secrets.js";
 import { type AppLocale, localizations, type TranslationKey, t } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
-import { DISPLAY_MODES } from "../render/template.js";
-import { THEME_IDS } from "../render/theme.js";
 import {
 	CATEGORY_CHOICES,
 	handleHealth,
@@ -28,8 +26,10 @@ import {
 	handleStyle,
 	handleTest,
 	LOCALE_CHOICES,
+	MODE_CHOICES,
 	showFiltersModal,
 	summarizeFilters,
+	THEME_CHOICES,
 } from "./repo-config.js";
 import { categoryView } from "./repo-events.js";
 import {
@@ -172,14 +172,14 @@ export const repoCommand = {
 						.setName("theme")
 						.setDescription(t("en", "cmd.repo.style.option.theme"))
 						.setRequired(false)
-						.addChoices(...THEME_IDS.map((theme) => ({ name: theme, value: theme }))),
+						.addChoices(...THEME_CHOICES),
 				)
 				.addStringOption((opt) =>
 					opt
 						.setName("mode")
 						.setDescription(t("en", "cmd.repo.style.option.mode"))
 						.setRequired(false)
-						.addChoices(...DISPLAY_MODES.map((mode) => ({ name: mode, value: mode }))),
+						.addChoices(...MODE_CHOICES),
 				),
 		)
 		.addSubcommand((sub) =>

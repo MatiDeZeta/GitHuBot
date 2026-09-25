@@ -149,11 +149,37 @@ const LANGUAGE_COLORS: Record<string, number> = {
 	scala: 0xc22d40,
 	shell: 0x89e051,
 	html: 0xe34c26,
-	css: 0x563d7c,
+	css: 0x663399,
 	vue: 0x41b883,
 	svelte: 0xff3e00,
 	zig: 0xec915c,
 };
+
+/**
+ * Accents whose colour carries meaning — pass/fail, severity, merged/closed. The
+ * `language` theme leaves these alone, so a failed build or a critical alert is still
+ * red in a TypeScript repository; only informational accents take the language colour.
+ */
+const STATUS_ACCENTS: ReadonlySet<AccentKey> = new Set<AccentKey>([
+	"delete",
+	"prDraft",
+	"prMerged",
+	"prClosed",
+	"reviewApproved",
+	"reviewChanges",
+	"issueClosed",
+	"issueNotPlanned",
+	"workflowRunning",
+	"workflowSuccess",
+	"workflowFailure",
+	"workflowCancelled",
+	"deploymentSuccess",
+	"deploymentFailure",
+	"security",
+	"securityCritical",
+	"securityResolved",
+	"discussionAnswered",
+]);
 
 export interface AccentContext {
 	theme: ThemeId;
@@ -163,7 +189,7 @@ export interface AccentContext {
 export function resolveAccent(accent: AccentKey, ctx: AccentContext): number {
 	if (ctx.theme === "language") {
 		const language = ctx.language?.toLowerCase();
-		const color = language ? LANGUAGE_COLORS[language] : undefined;
+		const color = language && !STATUS_ACCENTS.has(accent) ? LANGUAGE_COLORS[language] : undefined;
 		return color ?? defaultPalette[accent];
 	}
 	return PALETTES[ctx.theme][accent];
