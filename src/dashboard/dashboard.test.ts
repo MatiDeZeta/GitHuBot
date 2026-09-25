@@ -17,6 +17,7 @@ import {
 	type DashboardSession,
 	decodeSession,
 	encodeSession,
+	fitCookieBudget,
 	readCookie,
 	SESSION_COOKIE,
 } from "./session.js";
@@ -85,6 +86,30 @@ describe("dashboard session", () => {
 		expect(decodeSession("", key)).toBeNull();
 		expect(decodeSession("no-dot", key)).toBeNull();
 		expect(decodeSession("...", key)).toBeNull();
+	});
+
+	it("leaves a normal session untouched by the cookie budget", () => {
+		const original = session();
+		expect(fitCookieBudget(original, key)).toEqual(original);
+	});
+
+	it("fits a user who manages many servers under the browser cookie limit", () => {
+		// 200 servers with long, multi-byte names: far past 4 KB when stored whole.
+		const guilds = Array.from({ length: 200 }, (_, i) => ({
+			id: String(100000000000000000n + BigInt(i)),
+			name: `🚀 ${"Very Long Server Name ".repeat(5)}${i}`,
+		}));
+		const big = session({ guilds, guildIds: guilds.map((g) => g.id) });
+		expect(encodeSession(big, key).length).toBeGreaterThan(4096);
+
+		const fitted = fitCookieBudget(big, key);
+		const encoded = encodeSession(fitted, key);
+
+		expect(encoded.length).toBeLessThanOrEqual(3600);
+		expect(fitted.guilds.length).toBeGreaterThan(0);
+		expect(fitted.guildIds).toEqual(fitted.guilds.map((g) => g.id));
+		// Still a valid session that decodes, with names cut on a code point boundary.
+		expect(decodeSession(encoded, key)?.guilds[0]?.name.startsWith("🚀")).toBe(true);
 	});
 });
 

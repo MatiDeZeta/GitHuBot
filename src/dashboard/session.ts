@@ -51,6 +51,35 @@ export function encodeSession(session: DashboardSession, masterKey: Buffer): str
 	return `${payload}.${sign(payload, masterKey)}`;
 }
 
+/**
+ * Browsers drop a cookie whose name, value and attributes exceed 4096 bytes —
+ * silently, so sign-in just loops. This leaves room for the name and attributes.
+ */
+const SESSION_VALUE_BUDGET = 3_600;
+const GUILD_NAME_MAX = 64;
+
+/**
+ * Keeps the encoded session under the cookie budget: long server names are
+ * shortened, then servers are dropped from the end until it fits. Without this,
+ * someone managing a few dozen servers could never stay signed in.
+ */
+export function fitCookieBudget(session: DashboardSession, masterKey: Buffer): DashboardSession {
+	const guilds = session.guilds.map((guild) => ({
+		id: guild.id,
+		// Array.from splits by code point, so an emoji is never cut in half.
+		name: Array.from(guild.name).slice(0, GUILD_NAME_MAX).join(""),
+	}));
+	let fitted: DashboardSession = { ...session, guilds, guildIds: guilds.map((g) => g.id) };
+	while (
+		fitted.guilds.length > 0 &&
+		encodeSession(fitted, masterKey).length > SESSION_VALUE_BUDGET
+	) {
+		const kept = fitted.guilds.slice(0, -1);
+		fitted = { ...fitted, guilds: kept, guildIds: kept.map((g) => g.id) };
+	}
+	return fitted;
+}
+
 export function decodeSession(raw: string | undefined, masterKey: Buffer): DashboardSession | null {
 	if (!raw) return null;
 	const dot = raw.lastIndexOf(".");
