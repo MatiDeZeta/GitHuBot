@@ -354,6 +354,7 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"value.milestoneProgress": "{closed} cerradas · {open} abiertas",
 	"value.branchArrow": "{head} → {base}",
 	"value.oneTime": "único",
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal dollar sign before the {amount} placeholder
 	"value.monthly": "${amount}/mes",
 	"value.testBody": "Si puedes leer esto, GitHuBot puede publicar en este canal.",
 

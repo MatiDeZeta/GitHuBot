@@ -14,7 +14,7 @@ import {
 	type EventType,
 	eventTypeSchema,
 } from "../../config/events.js";
-import type { RepoFilters, TrackedRepo } from "../../db/types.js";
+import type { RepoFilters } from "../../db/types.js";
 import { deliverTemplate, renderOptionsFor } from "../../delivery/dispatch.js";
 import { parseFilterList } from "../../delivery/filters.js";
 import { resolveChannelId } from "../../delivery/routing.js";

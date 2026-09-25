@@ -381,6 +381,7 @@ export const en = {
 	"value.milestoneProgress": "{closed} closed · {open} open",
 	"value.branchArrow": "{head} → {base}",
 	"value.oneTime": "one-time",
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal dollar sign before the {amount} placeholder
 	"value.monthly": "${amount}/month",
 	"value.testBody": "If you can read this, GitHuBot can post to this channel.",
 

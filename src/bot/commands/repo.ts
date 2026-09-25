@@ -43,6 +43,9 @@ import {
 	slugOf,
 } from "./shared.js";
 
+/** A slash command known to come from a server, so `guildId` is a string. */
+type GuildChatInput = ChatInputCommandInteraction<"cached" | "raw">;
+
 const TEXT_CHANNEL_TYPES = [
 	ChannelType.GuildText,
 	ChannelType.GuildAnnouncement,
@@ -199,7 +202,7 @@ export async function handleRepoCommand(
 ): Promise<void> {
 	const { locale } = await guildContext(ctx, interaction);
 
-	if (!interaction.guildId) {
+	if (!interaction.inGuild()) {
 		await interaction.reply(ephemeralText(t(locale, "common.error.guildOnly")));
 		return;
 	}
@@ -278,18 +281,14 @@ function webhookUrl(publicBase: string, trackingId: string): string {
 	return `${publicBase}/webhooks/github/${trackingId}`;
 }
 
-async function handleAdd(
-	interaction: ChatInputCommandInteraction,
-	ctx: BotContext,
-	locale: AppLocale,
-) {
+async function handleAdd(interaction: GuildChatInput, ctx: BotContext, locale: AppLocale) {
 	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
 		return;
 	}
 	const { owner, repo, slug } = parsed.value;
-	const guildId = interaction.guildId!;
+	const guildId = interaction.guildId;
 	const channel = interaction.options.getChannel("channel") ?? interaction.channel;
 	if (!channel || !("id" in channel)) {
 		await interaction.reply(ephemeralText(t(locale, "repo.add.noChannel")));
@@ -349,18 +348,14 @@ async function handleAdd(
 	await interaction.editReply(ephemeralTextEdit(lines.join("\n")));
 }
 
-async function handleRemove(
-	interaction: ChatInputCommandInteraction,
-	ctx: BotContext,
-	locale: AppLocale,
-) {
+async function handleRemove(interaction: GuildChatInput, ctx: BotContext, locale: AppLocale) {
 	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
 		return;
 	}
 	const { owner, repo, slug } = parsed.value;
-	const removed = await ctx.repository.removeRepo(interaction.guildId!, owner, repo);
+	const removed = await ctx.repository.removeRepo(interaction.guildId, owner, repo);
 	if (!removed) {
 		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;
@@ -380,12 +375,8 @@ async function handleRemove(
 	);
 }
 
-async function handleList(
-	interaction: ChatInputCommandInteraction,
-	ctx: BotContext,
-	locale: AppLocale,
-) {
-	const repos = await ctx.repository.listRepos(interaction.guildId!);
+async function handleList(interaction: GuildChatInput, ctx: BotContext, locale: AppLocale) {
+	const repos = await ctx.repository.listRepos(interaction.guildId);
 	if (repos.length === 0) {
 		await interaction.reply(ephemeralText(t(locale, "repo.list.empty")));
 		return;
@@ -437,11 +428,7 @@ async function handleEvents(
 	await interaction.reply(ephemeralV2(...categoryView(tracked, locale)));
 }
 
-async function handleChannel(
-	interaction: ChatInputCommandInteraction,
-	ctx: BotContext,
-	locale: AppLocale,
-) {
+async function handleChannel(interaction: GuildChatInput, ctx: BotContext, locale: AppLocale) {
 	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
@@ -449,7 +436,7 @@ async function handleChannel(
 	}
 	const { owner, repo, slug } = parsed.value;
 	const channel = interaction.options.getChannel("channel", true);
-	const updated = await ctx.repository.updateChannel(interaction.guildId!, owner, repo, channel.id);
+	const updated = await ctx.repository.updateChannel(interaction.guildId, owner, repo, channel.id);
 	if (!updated) {
 		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;

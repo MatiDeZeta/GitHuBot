@@ -183,12 +183,6 @@ export function healthOf(repo: TrackedRepo): RepoHealth {
 	return failing ? "failing" : "ok";
 }
 
-const DOT: Record<RepoHealth, string> = {
-	ok: "#22c55e",
-	failing: "#ef4444",
-	paused: "#f59e0b",
-};
-
 export interface RepoView {
 	repo: TrackedRepo;
 	channelName: string;
