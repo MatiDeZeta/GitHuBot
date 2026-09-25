@@ -90,6 +90,7 @@ a { color: inherit; text-decoration: none; }
 .discord:hover { background: #fff; }
 .banner { display: flex; gap: 13px; padding: 16px 18px; background: rgba(239,68,68,0.05); border: 1px solid #341b1b; border-radius: 12px; }
 .banner.ok { background: rgba(34,197,94,0.05); border-color: #16351f; }
+.banner.warn { background: rgba(245,158,11,0.05); border-color: #3a2a10; }
 
 @media (max-width: 1100px) {
 	.grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -106,6 +107,7 @@ a { color: inherit; text-decoration: none; }
 
 const MARK = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ededed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h9a4 4 0 0 1 0 8H9"/><path d="M11.5 11 9 13.5 11.5 16"/><rect x="2.5" y="16.5" width="19" height="5" rx="1.5"/></svg>`;
 const WARN = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>`;
+const WARN_AMBER = WARN.replace('stroke="#ef4444"', 'stroke="#f59e0b"');
 const PAUSE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>`;
 const SEND = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>`;
 const ARROW = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3d3d3d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`;
@@ -444,6 +446,7 @@ export function repoDetailPage(
 
 			${noticeBanner(notice)}
 			${notice ? "" : failureBanner(repo, health, channelName)}
+			${renameBanner(repo)}
 
 			<div class="panel" style="grid-template-columns:repeat(4,minmax(0,1fr));margin:${notice || health === "failing" ? "28px 0 36px" : "0 0 36px"}">
 				<div class="cell" style="padding:20px 24px">
@@ -530,6 +533,15 @@ function filterRow(label: string, values: string[], kind: string, empty: string)
 function noticeBanner(notice: { kind: "ok" | "error"; text: string } | null): string {
 	if (!notice) return "";
 	return `<div class="banner ${notice.kind === "ok" ? "ok" : ""}"><span style="font-size:13px;color:${notice.kind === "ok" ? "#4ade80" : "#f87171"}">${escapeHtml(notice.text)}</span></div>`;
+}
+
+/** GitHub named a different repository in a verified delivery; see `observedFullName`. */
+function renameBanner(repo: TrackedRepo): string {
+	if (!repo.observedFullName) return "";
+	return `<div class="banner warn">${WARN_AMBER}<div style="display:flex;flex-direction:column;gap:7px;flex-grow:1">
+		<span style="font-size:13.5px;font-weight:700;color:#f59e0b">GitHub reports a different repository</span>
+		<span class="sec" style="font-size:13px;line-height:1.6">Deliveries arrive as <span class="mono" style="color:#ededed">${escapeHtml(repo.observedFullName)}</span>, not <span class="mono" style="color:#ededed">${escapeHtml(repo.owner)}/${escapeHtml(repo.repo)}</span>. If the repository was renamed or transferred, messages still post normally and only the name shown here is out of date. If the webhook was added to the wrong repository, delete it there.</span>
+	</div></div>`;
 }
 
 function failureBanner(repo: TrackedRepo, health: RepoHealth, channelName: string): string {

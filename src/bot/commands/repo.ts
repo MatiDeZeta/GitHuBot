@@ -391,6 +391,9 @@ async function handleList(interaction: GuildChatInput, ctx: BotContext, locale: 
 		const details = [
 			t(locale, "repo.list.events", { count: tracked.enabledEvents.length }),
 			...(tracked.paused ? [t(locale, "repo.list.paused")] : []),
+			...(tracked.observedFullName
+				? [t(locale, "repo.list.observed", { reported: tracked.observedFullName })]
+				: []),
 			...(Object.keys(tracked.eventRoutes).length > 0
 				? [t(locale, "repo.list.routes", { count: Object.keys(tracked.eventRoutes).length })]
 				: []),

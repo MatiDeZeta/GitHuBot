@@ -316,6 +316,21 @@ describe("dashboard routes", () => {
 		expect((await db.repository.getRepo(GUILD, "acme", "app"))?.paused).toBe(false);
 	});
 
+	it("flags a repository GitHub reports under a different name", async () => {
+		app = await build(DASHBOARD_ENV);
+		const url = `/dashboard/g/${GUILD}/r/acme/app`;
+		const headers = { cookie: cookieFor([GUILD]) };
+
+		const before = await app.inject({ method: "GET", url, headers });
+		expect(before.body).not.toContain("GitHub reports a different repository");
+
+		await db.repository.setObservedFullName("track-1", "acme/app-renamed");
+		const after = await app.inject({ method: "GET", url, headers });
+		expect(after.statusCode).toBe(200);
+		expect(after.body).toContain("GitHub reports a different repository");
+		expect(after.body).toContain("acme/app-renamed");
+	});
+
 	it("never exposes the webhook secret", async () => {
 		app = await build(DASHBOARD_ENV);
 		const res = await app.inject({

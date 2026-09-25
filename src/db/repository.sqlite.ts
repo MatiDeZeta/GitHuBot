@@ -206,6 +206,13 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 			return row !== undefined;
 		},
 
+		async setObservedFullName(trackingId, fullName) {
+			db.update(schema.trackedRepos)
+				.set({ observedFullName: fullName })
+				.where(eq(schema.trackedRepos.trackingId, trackingId))
+				.run();
+		},
+
 		async releaseDelivery(deliveryId) {
 			db.delete(schema.deliveries).where(eq(schema.deliveries.deliveryId, deliveryId)).run();
 		},

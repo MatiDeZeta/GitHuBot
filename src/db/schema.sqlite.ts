@@ -47,6 +47,8 @@ export const trackedRepos = sqliteTable(
 		lastSuccessAt: integer("last_success_at", { mode: "timestamp_ms" }),
 		lastErrorAt: integer("last_error_at", { mode: "timestamp_ms" }),
 		lastError: text("last_error"),
+		/** Repository name GitHub last reported, when it differs from owner/repo. */
+		observedFullName: text("observed_full_name"),
 		deliveredCount: integer("delivered_count").notNull().default(0),
 		failedCount: integer("failed_count").notNull().default(0),
 

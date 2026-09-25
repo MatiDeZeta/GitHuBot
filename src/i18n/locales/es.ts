@@ -486,6 +486,7 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.list.entry": "**{repo}** → <#{channel}>",
 	"repo.list.events": "Eventos: {count} activos",
 	"repo.list.paused": "Pausado",
+	"repo.list.observed": "⚠️ GitHub informa `{reported}`",
 	"repo.list.routes": "Rutas: {count}",
 	"repo.list.lastDelivery": "Última entrega: {when}",
 
@@ -600,6 +601,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.health.active": "**Estado**: activo",
 	"repo.health.hint":
 		"Si no llega nada, revisa **Recent Deliveries** en la página del webhook de GitHub.",
+	"repo.health.observed":
+		"⚠️ GitHub informa que estas entregas vienen de `{reported}`, no de `{repo}`. Si el repositorio fue renombrado o transferido, los mensajes se siguen publicando con normalidad — solo el nombre que muestra GitHuBot está desactualizado. Si el webhook se agregó al repositorio equivocado, elimínalo allí.",
 
 	/* ------------------------------------------------- /repo: language -- */
 	"repo.language.saved": "Idioma del servidor establecido en **{language}**.",

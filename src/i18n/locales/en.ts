@@ -512,6 +512,7 @@ export const en = {
 	"repo.list.entry": "**{repo}** → <#{channel}>",
 	"repo.list.events": "Events: {count} enabled",
 	"repo.list.paused": "Paused",
+	"repo.list.observed": "⚠️ GitHub reports `{reported}`",
 	"repo.list.routes": "Routes: {count}",
 	"repo.list.lastDelivery": "Last delivery: {when}",
 
@@ -619,6 +620,8 @@ export const en = {
 	"repo.health.active": "**Status**: active",
 	"repo.health.hint":
 		"If nothing has arrived, check **Recent Deliveries** on the GitHub webhook page.",
+	"repo.health.observed":
+		"⚠️ GitHub reports these deliveries as coming from `{reported}`, not `{repo}`. If the repository was renamed or transferred, messages still post normally — only the name GitHuBot shows is out of date. If the webhook was added to the wrong repository, delete it there.",
 
 	/* ------------------------------------------------- /repo: language -- */
 	"repo.language.saved": "Server language set to **{language}**.",

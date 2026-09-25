@@ -47,6 +47,12 @@ export interface TrackedRepo {
 	lastSuccessAt: Date | null;
 	lastErrorAt: Date | null;
 	lastError: string | null;
+	/**
+	 * The `owner/repo` GitHub last reported in a verified delivery, when it differs
+	 * from the tracked name — a rename, a transfer, or a webhook added to the wrong
+	 * repository. Null while they match.
+	 */
+	observedFullName: string | null;
 	deliveredCount: number;
 	failedCount: number;
 
@@ -168,6 +174,8 @@ export interface RepoRepository {
 	 * instead of being dropped as a duplicate.
 	 */
 	releaseDelivery(deliveryId: string): Promise<void>;
+	/** Records the name GitHub reports for this webhook, or null when it matches. */
+	setObservedFullName(trackingId: string, fullName: string | null): Promise<void>;
 	/** Deletes ledger rows older than `olderThan`; returns how many were removed. */
 	pruneDeliveries(olderThan: Date): Promise<number>;
 	/** Updates the health counters shown by `/repo health` and `/repo list`. */

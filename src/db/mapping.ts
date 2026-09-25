@@ -32,6 +32,7 @@ export interface RawRepoRow {
 	lastSuccessAt: Date | null;
 	lastErrorAt: Date | null;
 	lastError: string | null;
+	observedFullName: string | null;
 	deliveredCount: number;
 	failedCount: number;
 	createdAt: Date;
@@ -132,6 +133,7 @@ export function mapRepoRow(row: RawRepoRow): TrackedRepo {
 		lastSuccessAt: row.lastSuccessAt ?? null,
 		lastErrorAt: row.lastErrorAt ?? null,
 		lastError: row.lastError ?? null,
+		observedFullName: row.observedFullName ?? null,
 		deliveredCount: row.deliveredCount ?? 0,
 		failedCount: row.failedCount ?? 0,
 		createdAt: row.createdAt,

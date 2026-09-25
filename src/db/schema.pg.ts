@@ -52,6 +52,8 @@ export const trackedRepos = pgTable(
 		lastSuccessAt: timestamp("last_success_at", { withTimezone: true, mode: "date" }),
 		lastErrorAt: timestamp("last_error_at", { withTimezone: true, mode: "date" }),
 		lastError: text("last_error"),
+		/** Repository name GitHub last reported, when it differs from owner/repo. */
+		observedFullName: text("observed_full_name"),
 		deliveredCount: integer("delivered_count").notNull().default(0),
 		failedCount: integer("failed_count").notNull().default(0),
 

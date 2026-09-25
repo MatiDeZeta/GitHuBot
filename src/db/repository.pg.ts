@@ -199,6 +199,13 @@ export function createPgRepository(db: PgDb): RepoRepository {
 			return rows.length > 0;
 		},
 
+		async setObservedFullName(trackingId, fullName) {
+			await db
+				.update(schema.trackedRepos)
+				.set({ observedFullName: fullName })
+				.where(eq(schema.trackedRepos.trackingId, trackingId));
+		},
+
 		async releaseDelivery(deliveryId) {
 			await db.delete(schema.deliveries).where(eq(schema.deliveries.deliveryId, deliveryId));
 		},

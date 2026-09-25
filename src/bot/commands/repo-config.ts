@@ -307,6 +307,15 @@ export async function handleHealth(
 					error: tracked.lastError,
 				})
 			: t(locale, "repo.health.noErrors"),
+		...(tracked.observedFullName
+			? [
+					"",
+					t(locale, "repo.health.observed", {
+						reported: tracked.observedFullName,
+						repo: slugOf(tracked),
+					}),
+				]
+			: []),
 		"",
 		t(locale, "repo.health.hint"),
 	];

@@ -143,6 +143,37 @@ describe("webhook endpoint", () => {
 		expect(res.statusCode).toBe(415);
 	});
 
+	it("records when GitHub names a different repository, and clears it once it matches", async () => {
+		const deliver = (fullName: string) => {
+			const body = pushBody().replace('"full_name":"acme/app"', `"full_name":"${fullName}"`);
+			return post(body, {
+				"x-github-event": "push",
+				"x-github-delivery": randomUUID(),
+				"x-hub-signature-256": sign(body),
+			});
+		};
+		const observed = async () =>
+			(await db.repository.getRepo("guild-1", "acme", "app"))?.observedFullName;
+
+		expect((await deliver("acme/app-renamed")).statusCode).toBe(200);
+		expect(await observed()).toBe("acme/app-renamed");
+
+		// GitHub compares names case-insensitively, so this is a match.
+		await deliver("ACME/app");
+		expect(await observed()).toBeNull();
+	});
+
+	it("does not record a repository name from an unverified delivery", async () => {
+		const body = pushBody().replace('"full_name":"acme/app"', '"full_name":"evil/app"');
+		const res = await post(body, {
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(body, "wrong-secret"),
+		});
+		expect(res.statusCode).toBe(401);
+		expect((await db.repository.getRepo("guild-1", "acme", "app"))?.observedFullName).toBeNull();
+	});
+
 	it("rejects a bad signature without touching the database", async () => {
 		const body = pushBody();
 		const res = await post(body, {

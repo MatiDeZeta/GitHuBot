@@ -15,8 +15,9 @@ import type { Logger } from "../config/logger.js";
 import { tryDecryptSecret } from "../crypto/secrets.js";
 import { registerDashboard } from "../dashboard/routes.js";
 import { notConfiguredPage } from "../dashboard/views.js";
-import type { RepoRepository } from "../db/types.js";
+import type { RepoRepository, TrackedRepo } from "../db/types.js";
 import { type DispatchContext, type DispatchOutcome, dispatchEvent } from "../delivery/dispatch.js";
+import { repositoryMismatch } from "../github/repository.js";
 import { verifyGitHubSignature } from "../github/verify.js";
 import { metrics } from "../metrics.js";
 
@@ -246,6 +247,11 @@ async function handleWebhook(
 
 	metrics.recordReceived();
 
+	// Only after the signature holds: the name comes from whoever has the secret.
+	// Checked before `ping`, which is the first delivery after setup, so a webhook
+	// added to the wrong repository shows up before any event is missed.
+	await noteReportedRepository(ctx, tracked, request.body);
+
 	if (eventName === "ping") {
 		ctx.logger.info({ trackingId }, "GitHub ping received");
 		return reply.code(200).send({ ok: true, ping: true });
@@ -310,6 +316,30 @@ async function handleWebhook(
 			return reply.code(200).send({ ok: true, delivered: false, reason: "bad_channel" });
 		case "failed":
 			return reply.code(500).send({ error: "Delivery failed" });
+	}
+}
+
+/** Writes only when the state changes, so a steady stream of deliveries costs nothing. */
+async function noteReportedRepository(
+	ctx: ServerContext,
+	tracked: TrackedRepo,
+	payload: unknown,
+): Promise<void> {
+	const reported = repositoryMismatch(tracked, payload);
+	if (reported === undefined || reported === tracked.observedFullName) return;
+	try {
+		await ctx.repository?.setObservedFullName(tracked.trackingId, reported);
+		if (reported !== null) {
+			ctx.logger.warn(
+				{ trackingId: tracked.trackingId, tracked: `${tracked.owner}/${tracked.repo}`, reported },
+				"Webhook delivery names a different repository",
+			);
+		}
+	} catch (err) {
+		ctx.logger.error(
+			{ err, trackingId: tracked.trackingId },
+			"Failed to record reported repository",
+		);
 	}
 }
 

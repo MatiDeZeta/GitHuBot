@@ -360,6 +360,7 @@ Version-specific notes are in [`CHANGELOG.md`](CHANGELOG.md).
 | `401` on deliveries | Secret mismatch — run `/repo regenerate-secret` and update GitHub |
 | `404` on deliveries | Stale Payload URL — re-copy it from `/repo webhook-info` |
 | Message never posts | Bot needs **View Channel** and **Send Messages**; `/repo test` will surface the exact error. Once fixed, use **Redeliver** on GitHub to post the missed event |
+| "GitHub reports a different repository" | The repository was renamed or transferred (messages still post; only the name GitHuBot shows is stale), or the webhook was added to another repository — delete it there |
 | Data lost on redeploy | Mount SQLite under `/app/data` and set `DATABASE_URL` to match |
 | Secrets stopped working | `MASTER_KEY` changed — run `/repo regenerate-secret` and paste the new secret into GitHub |
 
