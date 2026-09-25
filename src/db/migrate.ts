@@ -6,9 +6,10 @@ import postgres from "postgres";
 import { isPostgresUrl, sqlitePathFromUrl } from "../config/env.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, "../..");
+/** Contains `sqlite/` and `pg/`. Overridable so tests can apply their own files. */
+const DEFAULT_MIGRATIONS_ROOT = join(here, "../..", "drizzle");
 
-function applySqliteMigrations(databaseUrl: string): void {
+function applySqliteMigrations(databaseUrl: string, migrationsRoot: string): void {
 	const path = sqlitePathFromUrl(databaseUrl);
 	try {
 		mkdirSync(dirname(path), { recursive: true });
@@ -21,7 +22,7 @@ function applySqliteMigrations(databaseUrl: string): void {
 		);
 	`);
 
-		const migrationsDir = join(root, "drizzle", "sqlite");
+		const migrationsDir = join(migrationsRoot, "sqlite");
 		if (!existsSync(migrationsDir)) {
 			db.close();
 			return;
@@ -38,13 +39,23 @@ function applySqliteMigrations(databaseUrl: string): void {
 				.map((row) => (row as { id: string }).id),
 		);
 
-		for (const file of files) {
-			if (applied.has(file)) continue;
-			const sql = readFileSync(join(migrationsDir, file), "utf8");
+		// Each file and its bookkeeping row commit together. Without the transaction a
+		// statement failing mid-file left the earlier ones applied but the file
+		// unrecorded, so every later boot re-ran it and failed on the half-done part.
+		const record = db.prepare("INSERT INTO __migrations (id, applied_at) VALUES (?, ?)");
+		const applyFile = db.transaction((file: string, sql: string) => {
 			db.exec(sql);
-			db.prepare("INSERT INTO __migrations (id, applied_at) VALUES (?, ?)").run(file, Date.now());
+			record.run(file, Date.now());
+		});
+
+		try {
+			for (const file of files) {
+				if (applied.has(file)) continue;
+				applyFile(file, readFileSync(join(migrationsDir, file), "utf8"));
+			}
+		} finally {
+			db.close();
 		}
-		db.close();
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		throw new Error(`SQLite open/migrate failed for path "${path}": ${message}`, {
@@ -53,8 +64,16 @@ function applySqliteMigrations(databaseUrl: string): void {
 	}
 }
 
-async function applyPgMigrations(databaseUrl: string): Promise<void> {
+async function applyPgMigrations(databaseUrl: string, migrationsRoot: string): Promise<void> {
 	const sql = postgres(databaseUrl, { max: 1 });
+	try {
+		await applyPgFiles(sql, migrationsRoot);
+	} finally {
+		await sql.end({ timeout: 5 });
+	}
+}
+
+async function applyPgFiles(sql: postgres.Sql, migrationsRoot: string): Promise<void> {
 	await sql`
 		CREATE TABLE IF NOT EXISTS __migrations (
 			id TEXT PRIMARY KEY,
@@ -62,11 +81,8 @@ async function applyPgMigrations(databaseUrl: string): Promise<void> {
 		);
 	`;
 
-	const migrationsDir = join(root, "drizzle", "pg");
-	if (!existsSync(migrationsDir)) {
-		await sql.end({ timeout: 5 });
-		return;
-	}
+	const migrationsDir = join(migrationsRoot, "pg");
+	if (!existsSync(migrationsDir)) return;
 
 	const files = readdirSync(migrationsDir)
 		.filter((f) => f.endsWith(".sql"))
@@ -78,18 +94,23 @@ async function applyPgMigrations(databaseUrl: string): Promise<void> {
 	for (const file of files) {
 		if (applied.has(file)) continue;
 		const content = readFileSync(join(migrationsDir, file), "utf8");
-		await sql.unsafe(content);
-		await sql`INSERT INTO __migrations (id, applied_at) VALUES (${file}, NOW())`;
+		// Same reasoning as SQLite: a file and its record commit or roll back together.
+		await sql.begin(async (tx) => {
+			await tx.unsafe(content);
+			await tx.unsafe("INSERT INTO __migrations (id, applied_at) VALUES ($1, NOW())", [file]);
+		});
 	}
-	await sql.end({ timeout: 5 });
 }
 
-export async function migrate(databaseUrl: string): Promise<void> {
+export async function migrate(
+	databaseUrl: string,
+	migrationsRoot: string = DEFAULT_MIGRATIONS_ROOT,
+): Promise<void> {
 	if (isPostgresUrl(databaseUrl)) {
-		await applyPgMigrations(databaseUrl);
+		await applyPgMigrations(databaseUrl, migrationsRoot);
 		return;
 	}
-	applySqliteMigrations(databaseUrl);
+	applySqliteMigrations(databaseUrl, migrationsRoot);
 }
 
 const isDirectRun = process.argv[1]

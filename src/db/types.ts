@@ -168,6 +168,8 @@ export interface RepoRepository {
 	 * instead of being dropped as a duplicate.
 	 */
 	releaseDelivery(deliveryId: string): Promise<void>;
+	/** Deletes ledger rows older than `olderThan`; returns how many were removed. */
+	pruneDeliveries(olderThan: Date): Promise<number>;
 	/** Updates the health counters shown by `/repo health` and `/repo list`. */
 	recordDeliveryResult(result: DeliveryResult): Promise<void>;
 	/**

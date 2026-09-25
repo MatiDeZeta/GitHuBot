@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { EventType } from "../config/events.js";
 import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
@@ -24,6 +24,19 @@ function emptyBuckets(days: number): number[] {
 	return new Array<number>(days).fill(0);
 }
 
+/**
+ * GitHub treats owner and repository names case-insensitively, so `/repo remove
+ * acme/app` must find a repository added as `Acme/App` — and adding it twice under
+ * different casing must be caught as a duplicate.
+ */
+function repoMatches(guildId: string, owner: string, repo: string) {
+	return and(
+		eq(schema.trackedRepos.guildId, guildId),
+		sql`lower(${schema.trackedRepos.owner}) = lower(${owner})`,
+		sql`lower(${schema.trackedRepos.repo}) = lower(${repo})`,
+	);
+}
+
 type PgDb = PostgresJsDatabase<typeof schema>;
 
 type RepoUpdate = Partial<typeof schema.trackedRepos.$inferInsert>;
@@ -38,13 +51,7 @@ export function createPgRepository(db: PgDb): RepoRepository {
 		const [row] = await db
 			.update(schema.trackedRepos)
 			.set({ ...values, updatedAt: new Date() })
-			.where(
-				and(
-					eq(schema.trackedRepos.guildId, guildId),
-					eq(schema.trackedRepos.owner, owner),
-					eq(schema.trackedRepos.repo, repo),
-				),
-			)
+			.where(repoMatches(guildId, owner, repo))
 			.returning();
 		return row ? mapRepoRow(row) : null;
 	}
@@ -96,13 +103,7 @@ export function createPgRepository(db: PgDb): RepoRepository {
 		async removeRepo(guildId, owner, repo) {
 			const [row] = await db
 				.delete(schema.trackedRepos)
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, guildId),
-						eq(schema.trackedRepos.owner, owner),
-						eq(schema.trackedRepos.repo, repo),
-					),
-				)
+				.where(repoMatches(guildId, owner, repo))
 				.returning();
 			return row ? mapRepoRow(row) : null;
 		},
@@ -124,13 +125,7 @@ export function createPgRepository(db: PgDb): RepoRepository {
 			const [row] = await db
 				.select()
 				.from(schema.trackedRepos)
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, guildId),
-						eq(schema.trackedRepos.owner, owner),
-						eq(schema.trackedRepos.repo, repo),
-					),
-				);
+				.where(repoMatches(guildId, owner, repo));
 			return row ? mapRepoRow(row) : null;
 		},
 
@@ -206,6 +201,13 @@ export function createPgRepository(db: PgDb): RepoRepository {
 
 		async releaseDelivery(deliveryId) {
 			await db.delete(schema.deliveries).where(eq(schema.deliveries.deliveryId, deliveryId));
+		},
+
+		async pruneDeliveries(olderThan) {
+			const result = await db
+				.delete(schema.deliveries)
+				.where(lt(schema.deliveries.createdAt, olderThan));
+			return result.count;
 		},
 
 		async activityByDay(trackingIds, days) {
