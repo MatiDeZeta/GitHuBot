@@ -74,6 +74,10 @@ describe("toolchain versions", () => {
 		expect(pkg.devDependencies["@types/node"]).toMatch(new RegExp(`^\\^${nodeMajor}\\.`));
 	});
 
+	it("pins that Node major in .nvmrc for local development", () => {
+		expect(read(".nvmrc").trim()).toBe(nodeMajor);
+	});
+
 	it("shows that Node major on the README badge", () => {
 		expect(readme).toContain(`badge/node-${nodeMajor}_LTS-`);
 	});

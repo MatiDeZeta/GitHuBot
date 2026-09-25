@@ -4,7 +4,7 @@ Thanks for helping improve GitHuBot.
 
 ## Development setup
 
-1. Install **Node.js 22+** and **pnpm 11+**.
+1. Install **Node.js 24 LTS** (see `.nvmrc`) and **pnpm 11+**.
 2. Copy `.env.example` to `.env` and fill in Discord credentials, `MASTER_KEY`, and `PUBLIC_WEBHOOK_URL`.
 3. Install dependencies: `pnpm install`
 4. Run migrations: `pnpm db:migrate`

@@ -5,7 +5,7 @@
 	"type": "module",
 	"private": true,
 	"engines": {
-		"node": ">=22"
+		"node": ">=24"
 	},
 	"packageManager": "pnpm@11.15.1",
 	"scripts": {
@@ -22,7 +22,7 @@
 		"db:migrate": "tsx src/db/migrate.ts"
 	},
 	"dependencies": {
-		"@fastify/rate-limit": "^10.3.0",
+		"@fastify/rate-limit": "^11.2.0",
 		"@octokit/webhooks-methods": "^6.0.0",
 		"better-sqlite3": "^13.0.1",
 		"discord.js": "^14.27.0",
@@ -35,11 +35,11 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.14",
-		"@types/better-sqlite3": "^7.6.13",
-		"@types/node": "^22.18.13",
+		"@types/better-sqlite3": "^9.6.0",
+		"@types/node": "^24.13.6",
 		"drizzle-kit": "^0.31.11",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2",
-		"vitest": "^4.1.10"
+		"vitest": "^5.0.1"
 	}
 }

@@ -80,7 +80,7 @@ enforced in CI, so they fail a pull request rather than relying on anyone rememb
 | `pnpm audit --audit-level moderate` | CI | Fails the build on known advisories. |
 | `pnpm store status` | CI | Recomputes every package's hash and reports files mutated after extraction. |
 | Actions pinned by commit SHA | `.github/workflows/ci.yml` | A tag like `@v4` is mutable and can be repointed at malicious code; a SHA cannot. |
-| Base image pinned by digest | `docker/Dockerfile` | A rebuild cannot silently pull a different `node:22-alpine`. |
+| Base image pinned by digest | `docker/Dockerfile` | A rebuild cannot silently pull a different `node:24-alpine`. |
 | Dependabot (npm, actions, docker) | `.github/dependabot.yml` | Updates arrive as reviewable PRs, and the SHA/digest pins stay current instead of rotting. A 3-day `cooldown` keeps it from proposing a release younger than the install policy allows. |
 
 Run the same checks locally with `pnpm audit:supply-chain`.
