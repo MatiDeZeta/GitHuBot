@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.2.0-8b5cf6?style=flat-square" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.2.1-8b5cf6?style=flat-square" alt="Version"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-22_LTS-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node"></a>
   <a href="https://discord.js.org/"><img src="https://img.shields.io/badge/discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white" alt="discord.js"></a>
   <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-11-F69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm"></a>
@@ -212,7 +212,7 @@ The Streaming activity is skipped unless `PRESENCE_STREAM_URL` points at Twitch 
 
 ## Translations
 
-All user-facing text lives in `src/i18n/locales/en.ts` as a flat, typed catalog. English is the only language shipped in 1.1.0, but the infrastructure is complete.
+All user-facing text lives in `src/i18n/locales/en.ts` as a flat, typed catalog. GitHuBot ships with English (`en`) and Spanish (`es`); the web dashboard is English-only.
 
 To add one:
 
@@ -255,6 +255,7 @@ pnpm dev
 | `PORT` / `HOST` | no | Default `3000` / `0.0.0.0` |
 | `TRUST_PROXY` | no | `true`/`false` or an IP/CIDR list. Required for per-IP rate limiting behind a proxy |
 | `WEBHOOK_BODY_LIMIT` | no | Max delivery size in bytes. Default `26214400` (GitHub's 25 MiB cap) |
+| `WEBHOOK_RATE_LIMIT` | no | Deliveries accepted per minute from one IP. Default `600` |
 | `METRICS_TOKEN` | no | When set, `/metrics` requires `Authorization: Bearer <token>` |
 | `DASHBOARD_ENABLED` | no | Serve the optional read-only web dashboard. Default `false` |
 | `DASHBOARD_BASE_URL` | no | Public origin the dashboard is served from (required with the above) |
@@ -343,11 +344,11 @@ The image entrypoint `chown`s `/app/data` on boot so the non-root process can cr
 
 ---
 
-## Upgrading to 1.1.0
+## Upgrading
 
-Deploy and restart. Migration `0002_v110` runs automatically and every new column is nullable or defaulted, so existing tracked repositories keep their channel, event selection and secrets. No new environment variables are required.
+Deploy and restart. Migrations run automatically on boot, each one in a transaction, and every column added so far is nullable or defaulted — existing tracked repositories keep their channel, event selection and secrets. No release to date has required a new environment variable.
 
-See [`CHANGELOG.md`](CHANGELOG.md) and [`RELEASE_NOTES_v1.1.0.md`](RELEASE_NOTES_v1.1.0.md) for the full list.
+Version-specific notes are in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -358,9 +359,9 @@ See [`CHANGELOG.md`](CHANGELOG.md) and [`RELEASE_NOTES_v1.1.0.md`](RELEASE_NOTES
 | Nothing arrives | Check **Recent Deliveries** on the GitHub webhook page, then `/repo health` |
 | `401` on deliveries | Secret mismatch — run `/repo regenerate-secret` and update GitHub |
 | `404` on deliveries | Stale Payload URL — re-copy it from `/repo webhook-info` |
-| Message never posts | Bot needs **View Channel** and **Send Messages**; `/repo test` will surface the exact error |
+| Message never posts | Bot needs **View Channel** and **Send Messages**; `/repo test` will surface the exact error. Once fixed, use **Redeliver** on GitHub to post the missed event |
 | Data lost on redeploy | Mount SQLite under `/app/data` and set `DATABASE_URL` to match |
-| Secrets stopped working | `MASTER_KEY` changed — rotate with `/repo regenerate-secret` |
+| Secrets stopped working | `MASTER_KEY` changed — run `/repo regenerate-secret` and paste the new secret into GitHub |
 
 ---
 
@@ -383,6 +384,8 @@ Operational hardening:
 - Set **`METRICS_TOKEN`** if the instance is reachable from the internet; `/health` stays public for platform health checks.
 - Unhandled errors return a generic body, never the underlying driver message.
 - `/repo` autocomplete honours `DISCORD_ALLOWED_USER_ID`, so tracked repo slugs are not enumerable by other Manage Server holders.
+- Rate limits are counted before a request body is read, so a flood is refused without buffering it.
+- Delivery ids are kept for 30 days — well past GitHub's 3-day redelivery window — and then pruned, so the dedupe ledger stays bounded.
 
 ---
 

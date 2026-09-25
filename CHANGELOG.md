@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-09-25
+
+A maintenance release: no new environment variables are required and no
+migration runs. Deploy and restart.
+
+### Security
+
+- **Untrusted text can no longer plant disguised links.** Titles escaped emphasis
+  and code but not square brackets, so any issue, PR, release or discussion title
+  could carry a masked link — attacker-chosen words on an attacker-chosen URL — and
+  push messages did not escape commit messages or commit author names at all.
+  Anyone able to get a commit or a title into a tracked repository, including
+  through a merged outside pull request, could use it in the changelog channel.
+  Both are now escaped, and role, channel and command pills (`<@&id>`, `<#id>`,
+  `</cmd:id>`) are neutralised too: pings were already blocked, but a pill alone
+  could pose as a real server role.
+
+### Fixed
+
+- **The `language` theme keeps status colours.** It coloured every event with the
+  repository's language, so a failed build, a critical alert and a merge were all
+  the same colour. Pass/fail, severity and merged/closed accents now keep their
+  meaning; only informational events take the language colour.
+- **`/repo style` can return to the server default.** Leaving an option out
+  pinned the instance default into the repository, so a later `DEFAULT_THEME`
+  change never reached it. Omitted options now keep their value, a "Server
+  default" choice clears the override, and choices show translated names.
+- **Spanish no longer shows English CI states.** Conclusions, deployment and
+  commit states, severities and "…and N more" were English in every language.
+- **Messages show when the event happened**, not when GitHuBot received it, so a
+  redelivery no longer reads "just now" for something from days earlier.
+- **Avatars have alt text** for screen readers.
+- **Changing `MASTER_KEY` no longer breaks deliveries.** After a key change, the
+  README's recovery step — `/repo regenerate-secret` — kept the old secret as the
+  rotation fallback even though it could no longer be decrypted, and that aborted
+  every delivery for the repository with a 500. The fallback is now skipped when
+  it does not decrypt, regenerate-secret stops carrying one forward, and
+  `/repo webhook-info` explains the key change instead of failing generically.
+- **GitHub's "Redeliver" works after a failed post.** A delivery that never
+  reached Discord (missing channel, missing permissions, send error) stayed
+  recorded, so a redelivery — which reuses the `X-GitHub-Delivery` id — was
+  ignored as a duplicate. Those deliveries are now released for another attempt.
+- **Busy repositories no longer lose events to rate limiting.** The webhook route
+  allowed 60 requests a minute per IP, but GitHub sends every repository's
+  deliveries from a small shared pool and never retries a 429, so CI-heavy bursts
+  (`workflow_job`, `check_run`) were silently dropped. The default is now 600 and
+  tunable with `WEBHOOK_RATE_LIMIT`.
+- **Rate limits apply before the body is read.** They ran after Fastify had
+  buffered the body — up to 25 MiB — so they did not blunt a flood. They now run
+  on `onRequest`.
+- **Malformed JSON returns 400, not 500.** Any caller could trigger a 500 and an
+  error-level log line on demand.
+- **Dashboard sign-in works for people in many servers.** The session cookie
+  listed every server the user manages, including ones GitHuBot is not in, and
+  past about 40 servers the browser silently dropped it, so sign-in looped. It now
+  keeps only servers the bot is in and always fits the browser's cookie limit.
+- **Repository names are case-insensitive**, as on GitHub: `Acme/App` and
+  `acme/app` can no longer be tracked twice, and `/repo remove acme/app` finds a
+  repository added as `Acme/App`. The original casing is kept for display.
+- **Migrations are transactional.** A file that failed part-way left its earlier
+  statements applied but the file unrecorded, so every later boot failed on the
+  half-applied state. Each file now commits or rolls back as a whole, on SQLite
+  and Postgres.
+- **The delivery ledger is bounded.** The `deliveries` table grew by one row per
+  webhook, forever. Rows older than 30 days are pruned at boot and every six hours;
+  dedupe only needs GitHub's 3-day redelivery window and the dashboard reads 7.
+- **The Docker image builds on current Node images.** Node 25+ images no longer
+  ship `corepack`, which the build relied on; pnpm is now installed from npm at the
+  version pinned in `package.json`.
+
 ### Security — supply chain
 
 - **Dependabot now honours a 3-day cooldown** on npm, actions and docker version
@@ -15,6 +85,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skip. CI already rejected such a PR, since pnpm enforces the policy against the
   lockfile, but not raising it is better than relying on the backstop. Security
   updates deliberately bypass the cooldown so CVE fixes still arrive immediately.
+- **Dependabot no longer proposes Node majors** for the base image or
+  `@types/node`. A new major is a deliberate runtime upgrade, and odd majors are
+  never LTS — it had proposed `node:25-alpine`, which was both and broke the build.
+  Action bumps now arrive as one grouped PR.
+- **GitHub Actions updated** to `actions/checkout` v7.0.1, `actions/setup-node`
+  v7.0.0 and `pnpm/action-setup` v6.1.0, moving CI off the deprecated Node 20
+  action runtime. Each pinned SHA was checked against the upstream release tag.
+- **Dependencies:** `fastify` 5.12.5, `zod` 4.6.5, `drizzle-orm` 0.45.3,
+  `drizzle-kit` 0.31.11, `tsx` 4.23.15 and `@biomejs/biome` 2.5.14, all past the
+  72-hour release-age gate. `pnpm audit` is clean.
+
+### Changed
+
+- `src/release.test.ts` fails CI when the version, the Node major or the pnpm
+  version disagree between `package.json`, `src/version.ts`, the README, the
+  CHANGELOG, the Dockerfile and the CI workflow.
+- The lint run is warning-free, and `biome.json` uses Biome's current `preset` key.
+- Docs: the README's upgrade section no longer links a release-notes file that was
+  never published, it now says Spanish ships alongside English, and
+  `CONTRIBUTING.md` describes when CI runs and how to cut a release.
+- The drizzle journals list migration `0003_delivery_activity`.
 
 ## [1.2.0] — 2026-09-09
 
@@ -243,8 +334,11 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.2.1
+[1.2.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.2.0
 [1.1.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.1.0
 [1.0.3]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.0.3
 [1.0.2]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.0.2
 [1.0.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.0.1
-[1.0.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.0.0
+[1.0.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/1.0.0
