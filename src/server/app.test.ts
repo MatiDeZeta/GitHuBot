@@ -108,6 +108,41 @@ describe("webhook endpoint", () => {
 		expect(res.json()).toMatchObject({ ok: true, reason: "paused" });
 	});
 
+	it("accepts GitHub's default form-encoded content type", async () => {
+		const body = `payload=${encodeURIComponent(pushBody())}`;
+		const res = await post(body, {
+			"content-type": "application/x-www-form-urlencoded",
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			// GitHub signs the form body exactly as sent, not the JSON inside it.
+			"x-hub-signature-256": sign(body),
+		});
+		expect(res.statusCode).toBe(200);
+		expect(res.json()).toMatchObject({ ok: true, reason: "paused" });
+	});
+
+	it("rejects a form-encoded delivery whose payload was altered after signing", async () => {
+		const body = `payload=${encodeURIComponent(pushBody())}`;
+		const res = await post(body.replace("acme", "evil"), {
+			"content-type": "application/x-www-form-urlencoded",
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(body),
+		});
+		expect(res.statusCode).toBe(401);
+	});
+
+	it("still refuses content types GitHub never sends", async () => {
+		const body = pushBody();
+		const res = await post(body, {
+			"content-type": "application/xml",
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(body),
+		});
+		expect(res.statusCode).toBe(415);
+	});
+
 	it("rejects a bad signature without touching the database", async () => {
 		const body = pushBody();
 		const res = await post(body, {

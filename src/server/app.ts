@@ -63,9 +63,7 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		} catch {
 			// A bare SyntaxError carries no status, so it surfaced as a 500 and an
 			// error-level log that any unauthenticated caller could trigger at will.
-			const error = new Error("Request body is not valid JSON") as FastifyError;
-			error.statusCode = 400;
-			done(error, undefined);
+			done(badRequest("Request body is not valid JSON"), undefined);
 		}
 	});
 
@@ -128,22 +126,54 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		);
 	}
 
-	app.post<{ Params: { trackingId: string } }>(
-		"/webhooks/github/:trackingId",
-		{
-			config: {
-				rateLimit: {
-					// GitHub delivers from a small pool of addresses and never retries a
-					// 429, so this must clear a busy repository's CI bursts.
-					max: ctx.env.WEBHOOK_RATE_LIMIT,
-					timeWindow: "1 minute",
+	// Encapsulated so its form parser applies to this route only; the dashboard
+	// registers a different one for its own forms.
+	await app.register(async (hooks: FastifyInstance) => {
+		// GitHub's default content type. The body is `payload=<url-encoded JSON>` and
+		// the signature covers it exactly as sent, so the raw string is kept for
+		// verification and only the `payload` field is parsed.
+		hooks.addContentTypeParser(
+			"application/x-www-form-urlencoded",
+			{ parseAs: "string" },
+			(req, body, done) => {
+				const raw = typeof body === "string" ? body : body.toString("utf8");
+				req.rawBody = raw;
+				const payload = new URLSearchParams(raw).get("payload");
+				if (payload === null) {
+					done(badRequest("Form body has no payload field"), undefined);
+					return;
+				}
+				try {
+					done(null, JSON.parse(payload));
+				} catch {
+					done(badRequest("Request body is not valid JSON"), undefined);
+				}
+			},
+		);
+
+		hooks.post<{ Params: { trackingId: string } }>(
+			"/webhooks/github/:trackingId",
+			{
+				config: {
+					rateLimit: {
+						// GitHub delivers from a small pool of addresses and never retries a
+						// 429, so this must clear a busy repository's CI bursts.
+						max: ctx.env.WEBHOOK_RATE_LIMIT,
+						timeWindow: "1 minute",
+					},
 				},
 			},
-		},
-		async (request, reply) => handleWebhook(request, reply, ctx),
-	);
+			async (request, reply) => handleWebhook(request, reply, ctx),
+		);
+	});
 
 	return app;
+}
+
+function badRequest(message: string): FastifyError {
+	const error = new Error(message) as FastifyError;
+	error.statusCode = 400;
+	return error;
 }
 
 async function handleWebhook(

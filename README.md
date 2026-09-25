@@ -30,7 +30,7 @@
 2. Deploy GitHuBot (Railway / Docker / local) and set the [environment variables](#environment-variables).
 3. Attach a **persistent volume** at `/app/data` if using SQLite (so tracked repos survive redeploys).
 4. In Discord, run `/repo add repository:owner/repo channel:#changelog` (requires **Manage Server**).
-5. Create the GitHub webhook from the ephemeral instructions (Payload URL + secret), content type `application/json`, **Send me everything**.
+5. Create the GitHub webhook from the ephemeral instructions (Payload URL + secret), content type `application/json` (GitHub's form-encoded default is accepted too), **Send me everything**.
 6. Run `/repo test owner/repo` to confirm the channel works, then `/repo events owner/repo` to choose what gets posted.
 
 > [**ⓘ**](#slash-commands) Optional: set `DISCORD_ALLOWED_USER_ID` to lock `/repo` commands to a single Discord user ID.

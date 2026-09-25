@@ -463,7 +463,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.add.intro": "GitHuBot nunca necesita un token de GitHub. Crea el webhook tú mismo:",
 	"repo.add.step1": "1. Abre {url}",
 	"repo.add.step2": "2. **Payload URL**: `{url}`",
-	"repo.add.step3": "3. **Content type**: `application/json`",
+	"repo.add.step3":
+		"3. **Content type**: `application/json` (recomendado; el form-encoded por defecto también funciona)",
 	"repo.add.step4": "4. **Secret**: `{secret}`",
 	"repo.add.step5":
 		"5. Elige **Send me everything** (el bot filtra en el servidor, así que es seguro)",
@@ -514,7 +515,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.webhookInfo.heading": "## Info del webhook · `{repo}`",
 	"repo.webhookInfo.payloadUrl": "**Payload URL**: `{url}`",
 	"repo.webhookInfo.secret": "**Secret**: `{secret}`",
-	"repo.webhookInfo.contentType": "**Content type**: `application/json`",
+	"repo.webhookInfo.contentType":
+		"**Content type**: `application/json` (recomendado; el form-encoded por defecto también funciona)",
 	"repo.webhookInfo.configureAt": "Configurar en: {url}",
 	"repo.webhookInfo.undecryptable":
 		"El secret guardado para `{repo}` ya no se puede descifrar — probablemente `MASTER_KEY` cambió desde que se creó. Ejecuta `/repo regenerate-secret {repo}` y pega el nuevo secret en el webhook de GitHub.",

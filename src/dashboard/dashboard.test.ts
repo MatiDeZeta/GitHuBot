@@ -400,15 +400,17 @@ describe("dashboard routes", () => {
 
 	it("does not let the dashboard's form parser reach the webhook endpoint", async () => {
 		app = await build(DASHBOARD_ENV);
-		// The urlencoded parser is registered inside the dashboard's encapsulated
-		// scope, so the webhook route must still refuse a form body.
+		// The dashboard's permissive urlencoded parser lives in its own encapsulated
+		// scope. The webhook has a GitHub-specific one that only accepts a `payload`
+		// field, so an arbitrary form body is refused rather than parsed.
 		const res = await app.inject({
 			method: "POST",
 			url: "/webhooks/github/track-1",
 			headers: { "content-type": "application/x-www-form-urlencoded" },
 			payload: "a=1",
 		});
-		expect(res.statusCode).toBe(415);
+		expect(res.statusCode).toBe(400);
+		expect(res.json()).toMatchObject({ error: "Form body has no payload field" });
 	});
 
 	it("clears the session on sign out", async () => {

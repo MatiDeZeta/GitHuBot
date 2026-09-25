@@ -489,7 +489,8 @@ export const en = {
 	"repo.add.intro": "GitHuBot never needs a GitHub token. Create the webhook yourself:",
 	"repo.add.step1": "1. Open {url}",
 	"repo.add.step2": "2. **Payload URL**: `{url}`",
-	"repo.add.step3": "3. **Content type**: `application/json`",
+	"repo.add.step3":
+		"3. **Content type**: `application/json` (recommended; the form-encoded default also works)",
 	"repo.add.step4": "4. **Secret**: `{secret}`",
 	"repo.add.step5":
 		"5. Choose **Send me everything** (the bot filters server-side, so this is safe)",
@@ -538,7 +539,8 @@ export const en = {
 	"repo.webhookInfo.heading": "## Webhook info · `{repo}`",
 	"repo.webhookInfo.payloadUrl": "**Payload URL**: `{url}`",
 	"repo.webhookInfo.secret": "**Secret**: `{secret}`",
-	"repo.webhookInfo.contentType": "**Content type**: `application/json`",
+	"repo.webhookInfo.contentType":
+		"**Content type**: `application/json` (recommended; the form-encoded default also works)",
 	"repo.webhookInfo.configureAt": "Configure at: {url}",
 	"repo.webhookInfo.undecryptable":
 		"The stored secret for `{repo}` can no longer be decrypted — `MASTER_KEY` has probably changed since it was created. Run `/repo regenerate-secret {repo}` and paste the new secret into the GitHub webhook.",
