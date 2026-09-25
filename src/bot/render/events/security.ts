@@ -9,40 +9,38 @@ import type {
 	SecurityAdvisoryPayload,
 	SecurityAndAnalysisPayload,
 } from "../../../github/payloads.js";
-import { tx } from "../../../i18n/index.js";
+import { type I18nText, tx } from "../../../i18n/index.js";
 import type { EventTemplate, TemplateField } from "../template.js";
 import {
 	actorBits,
 	code,
 	codeText,
 	links,
+	quote,
 	repoBits,
 	repositoryLink,
 	stateText,
 	titleText,
 } from "./common.js";
-
-function severityAccent(severity: string | null | undefined): AccentKey {
-	switch (severity?.toLowerCase()) {
-		case "critical":
-			return "securityCritical";
-		case "high":
-			return "security";
-		case "medium":
-		case "moderate":
-			return "security";
-		default:
-			return "neutral";
-	}
-}
+import {
+	advisoryIds,
+	cvssBadge,
+	epssBadge,
+	fixText,
+	normalizeSeverity,
+	severityAccent,
+	severityBadge,
+} from "./severity.js";
 
 export function formatDependabotAlert(payload: DependabotAlertPayload): EventTemplate | null {
 	const alert = payload.alert;
 	const advisory = alert.security_advisory;
+	const vulnerability = alert.security_vulnerability;
 	const bits = repoBits(payload.repository);
+	const severity = normalizeSeverity(vulnerability?.severity ?? advisory?.severity);
 
 	let title: ReturnType<typeof tx>;
-	let accent = severityAccent(advisory?.severity);
+	let accent = severityAccent(severity);
 
 	switch (payload.action) {
 		case "created":
@@ -64,51 +62,90 @@ export function formatDependabotAlert(payload: DependabotAlertPayload): EventTem
 			return null;
 	}
 
+	const open = accent !== "securityResolved" && accent !== "neutral";
+	const cvss = advisory?.cvss_severities;
+	const badge = compact(
+		severity ? severityBadge(severity) : undefined,
+		cvssBadge(cvss?.cvss_v4?.score, cvss?.cvss_v3?.score, advisory?.cvss?.score),
+		open ? epssBadge(advisory?.epss) : undefined,
+	);
+
 	const fields: TemplateField[] = [];
-	if (advisory?.severity) {
-		fields.push({ label: tx("field.severity"), value: codeText(stateText(advisory.severity)) });
-	}
-	const pkg = alert.dependency?.package;
+	const pkg = vulnerability?.package ?? alert.dependency?.package;
 	if (pkg?.name) {
-		const ecosystem = pkg.ecosystem ? ` (${pkg.ecosystem})` : "";
-		fields.push({ label: tx("field.package"), value: code(`${pkg.name}${ecosystem}`) });
+		const ecosystem = pkg.ecosystem ? ` (${titleText(pkg.ecosystem, 30)})` : "";
+		const manifest = alert.dependency?.manifest_path
+			? ` · ${code(alert.dependency.manifest_path)}`
+			: "";
+		fields.push({ label: tx("field.package"), value: `${code(pkg.name)}${ecosystem}${manifest}` });
 	}
-	if (alert.dependency?.manifest_path) {
+	if (vulnerability?.vulnerable_version_range) {
 		fields.push({
-			label: tx("field.manifest"),
-			value: code(alert.dependency.manifest_path),
-			secondary: true,
+			label: tx("field.affected"),
+			value: code(vulnerability.vulnerable_version_range),
 		});
 	}
-	if (advisory?.cve_id) {
-		fields.push({ label: tx("field.cve"), value: code(advisory.cve_id), secondary: true });
+	if (open) {
+		fields.push({
+			label: tx("field.fix"),
+			value: fixText(vulnerability?.first_patched_version?.identifier),
+		});
+	}
+	const ids = advisoryIds(advisory?.ghsa_id, advisory?.cve_id);
+	if (ids) fields.push({ label: tx("field.ids"), value: ids, secondary: true });
+	if (payload.action === "dismissed" && alert.dismissed_reason) {
+		fields.push({
+			label: tx("field.dismissedReason"),
+			value: codeText(stateText(alert.dismissed_reason)),
+		});
 	}
 
 	return {
 		accent,
 		icon: "shield",
 		title,
-		subtitle: advisory?.summary ? titleText(advisory.summary, 180) : undefined,
+		subtitle: alertSubtitle(alert.number, advisory?.summary),
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
 		language: bits.language,
 		actor: actorBits(payload.sender),
+		badge,
+		body: payload.action === "dismissed" ? quote(alert.dismissed_comment, 300) : undefined,
 		fields,
 		links: links(
 			{ label: tx("link.alert"), url: alert.html_url },
-			{ label: tx("link.repository"), url: `${bits.repoUrl}/security/dependabot` },
+			{
+				label: tx("link.advisory"),
+				url: advisory?.ghsa_id ? `https://github.com/advisories/${advisory.ghsa_id}` : undefined,
+			},
+			{ label: tx("link.allAlerts"), url: `${bits.repoUrl}/security/dependabot` },
 		),
 		timestamp: new Date(),
-		importance: accent === "securityCritical" ? "high" : "normal",
+		importance: severity === "critical" && open ? "high" : "normal",
 	};
+}
+
+/** `#42 · Prototype pollution in lodash`, or whichever half exists. */
+function alertSubtitle(number: number | undefined, summary: string | undefined) {
+	const text = summary ? titleText(summary, 180) : undefined;
+	if (number !== undefined && text) return `#${number} · ${text}`;
+	return text ?? (number !== undefined ? `#${number}` : undefined);
+}
+
+/** Drops the parts a payload did not have, so a badge never shows an empty slot. */
+function compact(...parts: (I18nText | undefined)[]): I18nText[] | undefined {
+	const kept = parts.filter((part): part is I18nText => part !== undefined);
+	return kept.length > 0 ? kept : undefined;
 }
 
 export function formatCodeScanningAlert(payload: CodeScanningAlertPayload): EventTemplate | null {
 	const alert = payload.alert;
 	const rule = alert.rule;
+	// Security rules carry `security_severity_level`; quality rules only error/warning/note.
+	const severity = normalizeSeverity(rule?.security_severity_level ?? rule?.severity);
 
 	let title: ReturnType<typeof tx>;
-	let accent = severityAccent(rule?.security_severity_level ?? rule?.severity);
+	let accent = severityAccent(severity);
 
 	switch (payload.action) {
 		case "created":
@@ -132,14 +169,25 @@ export function formatCodeScanningAlert(payload: CodeScanningAlertPayload): Even
 	}
 
 	const bits = repoBits(payload.repository);
+	const instance = alert.most_recent_instance;
+	const location = instance?.location;
+	const fileUrl =
+		location?.path && instance?.commit_sha
+			? `${bits.repoUrl}/blob/${instance.commit_sha}/${location.path
+					.split("/")
+					.map(encodeURIComponent)
+					.join("/")}${location.start_line ? `#L${location.start_line}` : ""}`
+			: undefined;
+
 	const fields: TemplateField[] = [];
-	if (rule?.id) fields.push({ label: tx("field.rule"), value: code(rule.id) });
-	const severity = rule?.security_severity_level ?? rule?.severity;
-	if (severity) {
-		fields.push({ label: tx("field.severity"), value: codeText(stateText(severity)) });
+	if (rule?.id) {
+		const tool = alert.tool?.name ? ` · ${titleText(alert.tool.name, 40)}` : "";
+		fields.push({ label: tx("field.rule"), value: `${code(rule.id)}${tool}` });
 	}
-	const path = alert.most_recent_instance?.location?.path;
-	if (path) fields.push({ label: tx("field.path"), value: code(path), secondary: true });
+	if (location?.path) {
+		const line = location.start_line ? `:${location.start_line}` : "";
+		fields.push({ label: tx("field.location"), value: code(`${location.path}${line}`) });
+	}
 	if (payload.ref) {
 		fields.push({ label: tx("field.ref"), value: code(payload.ref), secondary: true });
 	}
@@ -148,21 +196,29 @@ export function formatCodeScanningAlert(payload: CodeScanningAlertPayload): Even
 		accent,
 		icon: "alert",
 		title,
-		subtitle: rule?.description ? titleText(rule.description, 180) : undefined,
+		subtitle: alertSubtitle(alert.number, rule?.description ?? rule?.name),
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
 		language: bits.language,
 		actor: actorBits(payload.sender),
+		badge: compact(severity ? severityBadge(severity) : undefined),
+		// The finding's own message says what is wrong at this location.
+		body: quote(instance?.message?.text, 400),
 		fields,
 		links: links(
 			{ label: tx("link.alert"), url: alert.html_url },
-			{ label: tx("link.repository"), url: `${bits.repoUrl}/security/code-scanning` },
+			{ label: tx("link.location"), url: fileUrl },
+			{ label: tx("link.allAlerts"), url: `${bits.repoUrl}/security/code-scanning` },
 		),
 		timestamp: new Date(),
-		importance: accent === "securityCritical" ? "high" : "normal",
+		importance: severity === "critical" ? "high" : "normal",
 	};
 }
 
+/**
+ * The leaked credential itself is never read — the schema does not even model it —
+ * so it cannot reach a channel no matter how the payload changes.
+ */
 export function formatSecretScanningAlert(
 	payload: SecretScanningAlertPayload,
 ): EventTemplate | null {
@@ -185,33 +241,52 @@ export function formatSecretScanningAlert(
 			return null;
 	}
 
+	const open = payload.action !== "resolved";
 	const bits = repoBits(payload.repository);
-	const fields: TemplateField[] = [];
 	const type = alert.secret_type_display_name ?? alert.secret_type;
-	if (type) fields.push({ label: tx("field.secretType"), value: code(type) });
-	if (alert.resolution) {
+
+	// Validity decides urgency: an `active` secret still works right now.
+	const badge = compact(
+		open && alert.validity === "active" ? tx("value.secretStillValid") : undefined,
+		open && alert.publicly_leaked ? tx("value.publiclyLeaked") : undefined,
+		open && alert.multi_repo ? tx("value.multiRepo") : undefined,
+	);
+
+	const fields: TemplateField[] = [];
+	if (type) fields.push({ label: tx("field.secretType"), value: code(titleText(type, 80)) });
+	if (alert.validity && alert.validity !== "active") {
+		fields.push({ label: tx("field.validity"), value: codeText(stateText(alert.validity)) });
+	}
+	if (alert.push_protection_bypassed && alert.push_protection_bypassed_by?.login) {
 		fields.push({
-			label: tx("field.resolution"),
-			value: codeText(stateText(alert.resolution)),
-			secondary: true,
+			label: tx("field.state"),
+			value: tx("value.pushProtectionBypassed", {
+				user: titleText(alert.push_protection_bypassed_by.login, 40),
+			}),
 		});
+	}
+	if (alert.resolution) {
+		fields.push({ label: tx("field.resolution"), value: codeText(stateText(alert.resolution)) });
 	}
 
 	return {
 		accent,
 		icon: "key",
 		title,
+		subtitle: alertSubtitle(alert.number, undefined),
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
 		language: bits.language,
 		actor: actorBits(payload.sender),
+		badge,
+		body: open ? undefined : quote(alert.resolution_comment, 300),
 		fields,
 		links: links(
 			{ label: tx("link.alert"), url: alert.html_url },
-			{ label: tx("link.repository"), url: `${bits.repoUrl}/security/secret-scanning` },
+			{ label: tx("link.allAlerts"), url: `${bits.repoUrl}/security/secret-scanning` },
 		),
 		timestamp: new Date(),
-		importance: payload.action === "created" ? "high" : "normal",
+		importance: open ? "high" : "normal",
 	};
 }
 
@@ -254,20 +329,17 @@ export function formatSecurityAdvisory(payload: SecurityAdvisoryPayload): EventT
 	if (!title) return null;
 
 	const bits = repoBits(payload.repository);
+	const severity = normalizeSeverity(advisory.severity);
 	const fields: TemplateField[] = [];
-	if (advisory.severity) {
-		fields.push({ label: tx("field.severity"), value: codeText(stateText(advisory.severity)) });
-	}
-	if (advisory.ghsa_id) fields.push({ label: tx("field.advisory"), value: code(advisory.ghsa_id) });
-	if (advisory.cve_id) {
-		fields.push({ label: tx("field.cve"), value: code(advisory.cve_id), secondary: true });
-	}
+	const ids = advisoryIds(advisory.ghsa_id, advisory.cve_id);
+	if (ids) fields.push({ label: tx("field.ids"), value: ids });
 
 	return {
-		accent: severityAccent(advisory.severity),
+		accent: payload.action === "withdrawn" ? "neutral" : severityAccent(severity),
 		icon: "alert",
 		title,
 		subtitle: advisory.summary ? titleText(advisory.summary, 180) : undefined,
+		badge: compact(severity ? severityBadge(severity) : undefined),
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
 		language: bits.language,
@@ -294,14 +366,21 @@ export function formatRepositoryAdvisory(payload: RepositoryAdvisoryPayload): Ev
 	if (!title) return null;
 
 	const bits = repoBits(payload.repository);
+	const severity = normalizeSeverity(advisory.severity);
+	const cvss = advisory.cvss_severities;
 	const fields: TemplateField[] = [];
-	if (advisory.severity) {
-		fields.push({ label: tx("field.severity"), value: codeText(stateText(advisory.severity)) });
+	// One line per affected package (capped), each with its fix when one exists.
+	for (const vulnerability of (advisory.vulnerabilities ?? []).slice(0, 3)) {
+		const name = vulnerability.package?.name;
+		if (!name) continue;
+		const range = vulnerability.vulnerable_version_range
+			? ` ${code(vulnerability.vulnerable_version_range)}`
+			: "";
+		fields.push({ label: tx("field.package"), value: `${code(name)}${range}` });
+		fields.push({ label: tx("field.fix"), value: fixText(vulnerability.patched_versions) });
 	}
-	if (advisory.ghsa_id) fields.push({ label: tx("field.advisory"), value: code(advisory.ghsa_id) });
-	if (advisory.cve_id) {
-		fields.push({ label: tx("field.cve"), value: code(advisory.cve_id), secondary: true });
-	}
+	const ids = advisoryIds(advisory.ghsa_id, advisory.cve_id);
+	if (ids) fields.push({ label: tx("field.ids"), value: ids, secondary: true });
 	if (advisory.state) {
 		fields.push({
 			label: tx("field.state"),
@@ -311,10 +390,14 @@ export function formatRepositoryAdvisory(payload: RepositoryAdvisoryPayload): Ev
 	}
 
 	return {
-		accent: severityAccent(advisory.severity),
+		accent: severityAccent(severity),
 		icon: "alert",
 		title,
 		subtitle: advisory.summary ? titleText(advisory.summary, 180) : undefined,
+		badge: compact(
+			severity ? severityBadge(severity) : undefined,
+			cvssBadge(cvss?.cvss_v4?.score, cvss?.cvss_v3?.score, advisory.cvss?.score),
+		),
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
 		language: bits.language,

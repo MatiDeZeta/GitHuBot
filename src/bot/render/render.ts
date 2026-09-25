@@ -81,14 +81,22 @@ function renderDetailed(
 
 	let remaining = MAX_TEXT_CHARS - headerLines.join("\n").length;
 
+	// One divider under the header, whichever of badge, body and fields come first.
+	let divided = false;
+	const addBlock = (content: string) => {
+		if (!divided) c.addSeparatorComponents(separator());
+		divided = true;
+		c.addTextDisplayComponents(text(content));
+		remaining -= content.length;
+	};
+
+	const badge = badgeText(tpl, opts.locale);
+	if (badge) addBlock(truncate(badge, HEADER_BUDGET));
+
 	const body = bodyText(tpl, opts.locale);
 	if (body) {
 		const rendered = truncate(body, Math.min(BODY_BUDGET, Math.max(remaining - 200, 0)));
-		if (rendered) {
-			c.addSeparatorComponents(separator());
-			c.addTextDisplayComponents(text(rendered));
-			remaining -= rendered.length;
-		}
+		if (rendered) addBlock(rendered);
 	}
 
 	const fieldLines = (tpl.fields ?? [])
@@ -103,10 +111,7 @@ function renderDetailed(
 			fieldLines.join("\n"),
 			Math.min(FIELDS_BUDGET, Math.max(remaining - 100, 0)),
 		);
-		if (rendered) {
-			if (!body) c.addSeparatorComponents(separator());
-			c.addTextDisplayComponents(text(rendered));
-		}
+		if (rendered) addBlock(rendered);
 	}
 
 	const images = (tpl.images ?? [])
@@ -138,7 +143,7 @@ function renderCompact(
 	const lines = [truncate(head, HEADER_BUDGET)];
 
 	const body = bodyText(tpl, opts.locale);
-	const detail = [parts.subtitle, body ? firstLine(body) : undefined]
+	const detail = [badgeText(tpl, opts.locale), parts.subtitle, body ? firstLine(body) : undefined]
 		.filter((value): value is string => Boolean(value && value.length > 0))
 		.join(" — ");
 	if (detail) lines.push(truncate(detail, COMPACT_BODY_BUDGET));
@@ -160,6 +165,11 @@ function renderCompact(
 
 function avatarAlt(tpl: EventTemplate, locale: AppLocale): string | undefined {
 	return tpl.actor?.login ? t(locale, "common.avatarOf", { user: tpl.actor.login }) : undefined;
+}
+
+function badgeText(tpl: EventTemplate, locale: AppLocale): string | undefined {
+	const parts = (tpl.badge ?? []).map((part) => resolveText(locale, part)).filter(Boolean);
+	return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 function bodyText(tpl: EventTemplate, locale: AppLocale): string | undefined {

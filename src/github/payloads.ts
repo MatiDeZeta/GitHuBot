@@ -506,6 +506,38 @@ export const discussionCommentPayloadSchema = withAction
 
 /* -------------------------------------------------------------- security -- */
 
+/* -------------------------------------------------------------- security -- */
+
+const cvssSchema = z
+	.object({ score: z.number().nullable().optional() })
+	.loose()
+	.nullable()
+	.optional();
+
+const cvssSeveritiesSchema = z
+	.object({ cvss_v3: cvssSchema, cvss_v4: cvssSchema })
+	.loose()
+	.nullable()
+	.optional();
+
+const vulnerabilitySchema = z
+	.object({
+		severity: z.string().nullable().optional(),
+		package: z
+			.object({ name: z.string().optional(), ecosystem: z.string().optional() })
+			.loose()
+			.nullable()
+			.optional(),
+		vulnerable_version_range: z.string().nullable().optional(),
+		first_patched_version: z
+			.object({ identifier: z.string().optional() })
+			.loose()
+			.nullable()
+			.optional(),
+		patched_versions: z.string().nullable().optional(),
+	})
+	.loose();
+
 export const dependabotAlertPayloadSchema = withAction
 	.extend({
 		alert: z
@@ -518,9 +550,15 @@ export const dependabotAlertPayloadSchema = withAction
 						summary: z.string().optional(),
 						severity: z.string().optional(),
 						cve_id: z.string().nullable().optional(),
+						ghsa_id: z.string().nullable().optional(),
+						cvss: cvssSchema,
+						cvss_severities: cvssSeveritiesSchema,
+						// Shape has varied (object or one-element list); read defensively.
+						epss: z.unknown().optional(),
 					})
 					.loose()
 					.optional(),
+				security_vulnerability: vulnerabilitySchema.optional().nullable(),
 				dependency: z
 					.object({
 						package: z
@@ -528,9 +566,12 @@ export const dependabotAlertPayloadSchema = withAction
 							.loose()
 							.optional(),
 						manifest_path: z.string().optional(),
+						scope: z.string().nullable().optional(),
 					})
 					.loose()
 					.optional(),
+				dismissed_reason: z.string().nullable().optional(),
+				dismissed_comment: z.string().nullable().optional(),
 			})
 			.loose(),
 	})
@@ -546,15 +587,29 @@ export const codeScanningAlertPayloadSchema = withAction
 				rule: z
 					.object({
 						id: z.string().optional(),
+						name: z.string().optional(),
 						description: z.string().optional(),
 						severity: z.string().nullable().optional(),
 						security_severity_level: z.string().nullable().optional(),
+						tags: z.array(z.string()).nullable().optional(),
 					})
+					.loose()
+					.optional(),
+				tool: z
+					.object({ name: z.string().optional(), version: z.string().nullable().optional() })
 					.loose()
 					.optional(),
 				most_recent_instance: z
 					.object({
-						location: z.object({ path: z.string().optional() }).loose().optional(),
+						commit_sha: z.string().optional(),
+						message: z.object({ text: z.string().optional() }).loose().optional(),
+						location: z
+							.object({
+								path: z.string().optional(),
+								start_line: z.number().optional(),
+							})
+							.loose()
+							.optional(),
 					})
 					.loose()
 					.optional(),
@@ -574,6 +629,15 @@ export const secretScanningAlertPayloadSchema = withAction
 				secret_type_display_name: z.string().optional(),
 				secret_type: z.string().optional(),
 				resolution: z.string().nullable().optional(),
+				resolution_comment: z.string().nullable().optional(),
+				// `active` means the leaked credential still works.
+				validity: z.string().nullable().optional(),
+				publicly_leaked: z.boolean().nullable().optional(),
+				multi_repo: z.boolean().nullable().optional(),
+				push_protection_bypassed: z.boolean().nullable().optional(),
+				push_protection_bypassed_by: actorSchema.nullable().optional(),
+				// `secret` (the credential itself) is intentionally not modelled: it must
+				// never reach a Discord channel.
 			})
 			.loose(),
 		location: z.object({ type: z.string().optional() }).loose().optional(),
@@ -620,6 +684,9 @@ export const repositoryAdvisoryPayloadSchema = withAction
 				severity: z.string().nullable().optional(),
 				state: z.string().optional(),
 				html_url: z.url().optional(),
+				cvss: cvssSchema,
+				cvss_severities: cvssSeveritiesSchema,
+				vulnerabilities: z.array(vulnerabilitySchema).nullable().optional(),
 			})
 			.loose(),
 	})
