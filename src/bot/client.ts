@@ -1,4 +1,5 @@
 import {
+	type APIApplicationEmoji,
 	type ChatInputCommandInteraction,
 	Client,
 	Events,
@@ -33,7 +34,9 @@ import {
 } from "./commands/repo-config.js";
 import { handleEventsComponent } from "./commands/repo-events.js";
 import { guildContext, isAllowedUser, respondRepoAutocomplete } from "./commands/shared.js";
+import { listApplicationEmojis, syncApplicationEmojis } from "./emojis.js";
 import { INITIAL_PRESENCE, startPresence } from "./presence.js";
+import { applyApplicationEmojis } from "./render/icons.js";
 
 export interface BotContext {
 	env: FullyConfiguredEnv;
@@ -64,6 +67,8 @@ export function createBot(ctx: BotContext): Client {
 
 	client.once(Events.ClientReady, (readyClient) => {
 		ctx.logger.info({ user: readyClient.user.tag }, "Discord bot ready");
+		void loadIconEmojis(readyClient, ctx);
+		void reconcileGuilds(readyClient, ctx);
 		startPresence(readyClient, {
 			repository: ctx.repository,
 			logger: ctx.logger,
@@ -72,6 +77,27 @@ export function createBot(ctx: BotContext): Client {
 				streamUrl: ctx.env.PRESENCE_STREAM_URL,
 			},
 		});
+	});
+
+	// Removal starts the grace period before a server's data is purged; coming back
+	// cancels it. An outage arrives as an *unavailable* guild, which is not a removal.
+	client.on(Events.GuildDelete, (guild) => {
+		if (!guild.available) return;
+		ctx.repository
+			.setGuildLeft(guild.id, new Date())
+			.then(() =>
+				ctx.logger.info({ guildId: guild.id }, "Removed from server; data purge scheduled"),
+			)
+			.catch((err) =>
+				ctx.logger.error({ err, guildId: guild.id }, "Failed to mark server as left"),
+			);
+	});
+	client.on(Events.GuildCreate, (guild) => {
+		ctx.repository
+			.setGuildLeft(guild.id, null)
+			.catch((err) =>
+				ctx.logger.error({ err, guildId: guild.id }, "Failed to mark server as joined"),
+			);
 	});
 
 	client.on(Events.InteractionCreate, async (interaction: Interaction) => {
@@ -84,6 +110,53 @@ export function createBot(ctx: BotContext): Client {
 	});
 
 	return client;
+}
+
+/**
+ * Switches icons to the bot's `gh_*` application emojis when it has them, uploading
+ * any missing ones first if EMOJI_SYNC is on. Best effort: on any failure the
+ * Unicode icons simply stay.
+ */
+async function loadIconEmojis(client: Client<true>, ctx: BotContext): Promise<void> {
+	try {
+		const applicationId = client.application.id;
+		let emojis: APIApplicationEmoji[];
+		if (ctx.env.EMOJI_SYNC) {
+			const result = await syncApplicationEmojis(client.rest, applicationId);
+			emojis = result.emojis;
+			if (result.created.length > 0 || result.failed.length > 0) {
+				ctx.logger.info(
+					{ created: result.created.length, failed: result.failed },
+					"Synced application emojis",
+				);
+			}
+		} else {
+			emojis = await listApplicationEmojis(client.rest, applicationId);
+		}
+		const applied = applyApplicationEmojis(emojis);
+		if (applied.length > 0) {
+			ctx.logger.info({ icons: applied.length }, "Using application emojis for icons");
+		}
+	} catch (err) {
+		ctx.logger.warn({ err }, "Could not load application emojis; keeping Unicode icons");
+	}
+}
+
+/**
+ * Catches removals that happened while the bot was offline: a server with stored
+ * data that Discord no longer lists starts its grace period now. The ready cache
+ * includes unavailable guilds, so an outage does not count as a removal here either.
+ */
+async function reconcileGuilds(client: Client<true>, ctx: BotContext): Promise<void> {
+	try {
+		const now = new Date();
+		for (const guildId of await ctx.repository.listGuildIds()) {
+			const present = client.guilds.cache.has(guildId);
+			await ctx.repository.setGuildLeft(guildId, present ? null : now);
+		}
+	} catch (err) {
+		ctx.logger.error({ err }, "Failed to reconcile servers at startup");
+	}
 }
 
 async function route(interaction: Interaction, ctx: BotContext): Promise<void> {

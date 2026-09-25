@@ -26,6 +26,13 @@ GitHuBot stores encrypted webhook secrets and Discord credentials. Please **do n
   uptime, not secrets or repository names.
 - **Rate limiting depends on `TRUST_PROXY`.** In a proxied deployment without it, the
   per-IP limit degrades to a single shared bucket.
+- **Replay protection is the delivery ledger, and it is bounded.** GitHub signs the body
+  but no timestamp, so a replayed delivery is recognised only by its `X-GitHub-Delivery`
+  id. Ids are kept for 30 days — ten times GitHub's own 3-day redelivery window — then
+  pruned so the table cannot grow forever. A genuine delivery captured and replayed after
+  that would post its (authentic, unaltered) message once more; it cannot be modified
+  without the secret. A delivery that never reached Discord is released at once so
+  GitHub's **Redeliver** can retry it.
 
 ## Dashboard
 
@@ -80,7 +87,7 @@ enforced in CI, so they fail a pull request rather than relying on anyone rememb
 | `pnpm audit --audit-level moderate` | CI | Fails the build on known advisories. |
 | `pnpm store status` | CI | Recomputes every package's hash and reports files mutated after extraction. |
 | Actions pinned by commit SHA | `.github/workflows/ci.yml` | A tag like `@v4` is mutable and can be repointed at malicious code; a SHA cannot. |
-| Base image pinned by digest | `docker/Dockerfile` | A rebuild cannot silently pull a different `node:22-alpine`. |
+| Base image pinned by digest | `docker/Dockerfile` | A rebuild cannot silently pull a different `node:24-alpine`. |
 | Dependabot (npm, actions, docker) | `.github/dependabot.yml` | Updates arrive as reviewable PRs, and the SHA/digest pins stay current instead of rotting. A 3-day `cooldown` keeps it from proposing a release younger than the install policy allows. |
 
 Run the same checks locally with `pnpm audit:supply-chain`.
@@ -103,6 +110,11 @@ cooldown per command rather than lowering it permanently:
 ```bash
 pnpm add <pkg>@<version> --config.minimumReleaseAge=0
 ```
+
+## Privacy
+
+What GitHuBot stores, for how long, and how it is deleted is documented in
+[PRIVACY.md](PRIVACY.md).
 
 ## Out of scope (by design)
 

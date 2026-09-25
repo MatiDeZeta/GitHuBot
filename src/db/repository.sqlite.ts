@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import type { EventType } from "../config/events.js";
 import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
@@ -24,6 +24,19 @@ function emptyBuckets(days: number): number[] {
 	return new Array<number>(days).fill(0);
 }
 
+/**
+ * GitHub treats owner and repository names case-insensitively, so `/repo remove
+ * acme/app` must find a repository added as `Acme/App` — and adding it twice under
+ * different casing must be caught as a duplicate.
+ */
+function repoMatches(guildId: string, owner: string, repo: string) {
+	return and(
+		eq(schema.trackedRepos.guildId, guildId),
+		sql`lower(${schema.trackedRepos.owner}) = lower(${owner})`,
+		sql`lower(${schema.trackedRepos.repo}) = lower(${repo})`,
+	);
+}
+
 type SqliteDb = BetterSQLite3Database<typeof schema>;
 
 type RepoUpdate = Partial<typeof schema.trackedRepos.$inferInsert>;
@@ -38,13 +51,7 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 		const row = db
 			.update(schema.trackedRepos)
 			.set({ ...values, updatedAt: new Date() })
-			.where(
-				and(
-					eq(schema.trackedRepos.guildId, guildId),
-					eq(schema.trackedRepos.owner, owner),
-					eq(schema.trackedRepos.repo, repo),
-				),
-			)
+			.where(repoMatches(guildId, owner, repo))
 			.returning()
 			.get();
 		return row ? mapRepoRow(row) : null;
@@ -68,6 +75,9 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 					...(settings.defaultTheme !== undefined ? { defaultTheme: settings.defaultTheme } : {}),
 					...(settings.defaultDisplayMode !== undefined
 						? { defaultDisplayMode: settings.defaultDisplayMode }
+						: {}),
+					...(settings.alertChannelId !== undefined
+						? { alertChannelId: settings.alertChannelId }
 						: {}),
 					updatedAt: new Date(),
 				})
@@ -98,15 +108,13 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 		async removeRepo(guildId, owner, repo) {
 			const row = db
 				.delete(schema.trackedRepos)
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, guildId),
-						eq(schema.trackedRepos.owner, owner),
-						eq(schema.trackedRepos.repo, repo),
-					),
-				)
+				.where(repoMatches(guildId, owner, repo))
 				.returning()
 				.get();
+			// Nothing about a removed repository outlives it, not even its delivery ids.
+			if (row) {
+				db.delete(schema.deliveries).where(eq(schema.deliveries.trackingId, row.trackingId)).run();
+			}
 			return row ? mapRepoRow(row) : null;
 		},
 
@@ -128,13 +136,7 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 			const row = db
 				.select()
 				.from(schema.trackedRepos)
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, guildId),
-						eq(schema.trackedRepos.owner, owner),
-						eq(schema.trackedRepos.repo, repo),
-					),
-				)
+				.where(repoMatches(guildId, owner, repo))
 				.get();
 			return row ? mapRepoRow(row) : null;
 		},
@@ -209,6 +211,67 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 				.returning({ deliveryId: schema.deliveries.deliveryId })
 				.get();
 			return row !== undefined;
+		},
+
+		async setGuildLeft(guildId, leftAt) {
+			const pending = leftAt ? isNull(schema.guilds.leftAt) : isNotNull(schema.guilds.leftAt);
+			db.update(schema.guilds)
+				.set({ leftAt, updatedAt: new Date() })
+				.where(and(eq(schema.guilds.guildId, guildId), pending))
+				.run();
+		},
+
+		async listGuildIds() {
+			return db
+				.select({ guildId: schema.guilds.guildId })
+				.from(schema.guilds)
+				.all()
+				.map((row) => row.guildId);
+		},
+
+		async purgeGuildsLeftBefore(cutoff) {
+			const gone = db
+				.select({ guildId: schema.guilds.guildId })
+				.from(schema.guilds)
+				.where(lt(schema.guilds.leftAt, cutoff))
+				.all()
+				.map((row) => row.guildId);
+			if (gone.length === 0) return 0;
+			db.transaction((tx) => {
+				const trackingIds = tx
+					.select({ trackingId: schema.trackedRepos.trackingId })
+					.from(schema.trackedRepos)
+					.where(inArray(schema.trackedRepos.guildId, gone))
+					.all()
+					.map((row) => row.trackingId);
+				if (trackingIds.length > 0) {
+					tx.delete(schema.deliveries)
+						.where(inArray(schema.deliveries.trackingId, trackingIds))
+						.run();
+				}
+				// Tracked repositories go with the guild through ON DELETE CASCADE.
+				tx.delete(schema.guilds).where(inArray(schema.guilds.guildId, gone)).run();
+			});
+			return gone.length;
+		},
+
+		async setObservedFullName(trackingId, fullName) {
+			db.update(schema.trackedRepos)
+				.set({ observedFullName: fullName })
+				.where(eq(schema.trackedRepos.trackingId, trackingId))
+				.run();
+		},
+
+		async releaseDelivery(deliveryId) {
+			db.delete(schema.deliveries).where(eq(schema.deliveries.deliveryId, deliveryId)).run();
+		},
+
+		async pruneDeliveries(olderThan) {
+			const result = db
+				.delete(schema.deliveries)
+				.where(lt(schema.deliveries.createdAt, olderThan))
+				.run();
+			return result.changes;
 		},
 
 		async activityByDay(trackingIds, days) {

@@ -100,6 +100,7 @@ import {
 	formatSecurityAdvisory,
 	formatSecurityAndAnalysis,
 } from "./security.js";
+import { eventTime } from "./time.js";
 
 /** Parses a raw webhook body, then formats it. Returns null to skip posting. */
 export type EventBuilder = (payload: unknown) => EventTemplate | null;
@@ -186,5 +187,9 @@ export const EVENT_BUILDERS: Record<EventType, EventBuilder> = {
 };
 
 export function buildEventTemplate(eventType: EventType, payload: unknown): EventTemplate | null {
-	return EVENT_BUILDERS[eventType](payload);
+	const template = EVENT_BUILDERS[eventType](payload);
+	if (!template) return null;
+	// Formatters stamp the receive time; the payload usually knows when it happened.
+	const happened = eventTime(eventType, payload);
+	return happened ? { ...template, timestamp: happened } : template;
 }

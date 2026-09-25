@@ -41,8 +41,16 @@ export interface EventTemplate {
 	repoUrl?: string;
 	/** Optional second line, e.g. "#42 · Add retry logic". */
 	subtitle?: I18nText;
-	/** Markdown block shown under the header in detailed mode. */
-	body?: string;
+	/**
+	 * Markdown block shown under the header in detailed mode. A list is joined one
+	 * entry per line, so translatable lines ("…and 3 more") can sit beside raw ones.
+	 */
+	body?: I18nText | I18nText[];
+	/**
+	 * Short facts that matter most, joined with ` · ` on one line right under the
+	 * header, e.g. `🔴 critical · CVSS 9.8`. Kept in compact mode, unlike fields.
+	 */
+	badge?: I18nText[];
 	fields?: TemplateField[];
 	/** Actor whose avatar becomes the section thumbnail. */
 	actor?: { login: string; avatarUrl?: string; url?: string };

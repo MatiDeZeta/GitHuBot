@@ -131,6 +131,12 @@ const envSchema = z.object({
 		.positive()
 		.max(GITHUB_MAX_PAYLOAD_BYTES)
 		.default(GITHUB_MAX_PAYLOAD_BYTES),
+	/**
+	 * Deliveries accepted per minute from one IP. GitHub sends every repository's
+	 * webhooks from a small shared pool and does not retry a 429, so a limit tuned
+	 * for browsers silently drops CI-heavy bursts (workflow_job, check_run).
+	 */
+	WEBHOOK_RATE_LIMIT: z.coerce.number().int().positive().max(100_000).default(600),
 	/** When set, `/metrics` requires `Authorization: Bearer <token>`. `/health` stays public. */
 	METRICS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(16).optional()),
 	LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
@@ -153,6 +159,11 @@ const envSchema = z.object({
 	PRESENCE_STREAM_URL: z.preprocess(emptyToUndefined, streamUrlSchema.optional()),
 	/** Replaces the built-in rotation entirely when provided. */
 	PRESENCE_ROTATION: z.preprocess(jsonArray, z.array(presenceEntrySchema).min(1).optional()),
+	/**
+	 * Upload the bundled GitHub-style icons as application emojis at startup (only the
+	 * missing ones). Off by default; `pnpm emojis:sync` does the same on demand.
+	 */
+	EMOJI_SYNC: z.preprocess(booleanish, z.boolean().default(false)),
 	/** `{ "push": "<:push:123>" }` to swap Unicode icons for app emojis. */
 	EMOJI_OVERRIDES: z.preprocess(jsonRecord, z.record(z.string(), z.string()).optional()),
 	DEFAULT_LOCALE: z.preprocess(emptyToUndefined, z.enum(SUPPORTED_LOCALES).default("en")),

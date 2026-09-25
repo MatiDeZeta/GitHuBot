@@ -14,12 +14,12 @@ import {
 	actorBits,
 	code,
 	humanizeDuration,
-	humanizeState,
 	links,
 	parseDate,
 	quote,
 	repoBits,
 	repositoryLink,
+	stateText,
 	titleText,
 } from "./common.js";
 
@@ -64,7 +64,7 @@ export function formatWorkflowRun(payload: WorkflowRunPayload): EventTemplate | 
 				? tx("title.workflow.failure")
 				: conclusion === "cancelled"
 					? tx("title.workflow.cancelled")
-					: tx("title.workflow.other", { conclusion: humanizeState(conclusion ?? "finished") });
+					: tx("title.workflow.other", { conclusion: stateText(conclusion ?? "finished") });
 
 	const fields: TemplateField[] = [];
 	if (run.name) fields.push({ label: tx("field.workflow"), value: code(run.name) });
@@ -120,7 +120,7 @@ export function formatWorkflowJob(payload: WorkflowJobPayload): EventTemplate | 
 		accent: style.accent,
 		icon: style.icon,
 		title: tx("title.job.completed", {
-			conclusion: humanizeState(job.conclusion ?? "finished").toLowerCase(),
+			conclusion: stateText(job.conclusion ?? "finished"),
 		}),
 		subtitle: titleText(job.name, 120),
 		repo: bits.repo,
@@ -150,7 +150,7 @@ export function formatCheckRun(payload: CheckRunPayload): EventTemplate | null {
 		accent: style.accent,
 		icon: style.icon,
 		title: tx("title.check.completed", {
-			conclusion: humanizeState(check.conclusion ?? "finished").toLowerCase(),
+			conclusion: stateText(check.conclusion ?? "finished"),
 		}),
 		subtitle: check.output?.title ? titleText(check.output.title, 150) : undefined,
 		repo: bits.repo,
@@ -187,7 +187,7 @@ export function formatCheckSuite(payload: CheckSuitePayload): EventTemplate | nu
 		accent: style.accent,
 		icon: style.icon,
 		title: tx("title.checkSuite.completed", {
-			conclusion: humanizeState(suite.conclusion ?? "finished").toLowerCase(),
+			conclusion: stateText(suite.conclusion ?? "finished"),
 		}),
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
@@ -213,7 +213,7 @@ export function formatStatus(payload: StatusPayload): EventTemplate | null {
 	return {
 		accent: "workflowFailure",
 		icon: "failure",
-		title: tx("title.status", { state: humanizeState(payload.state).toLowerCase() }),
+		title: tx("title.status", { state: stateText(payload.state) }),
 		subtitle: payload.description ? titleText(payload.description, 150) : undefined,
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,
@@ -263,7 +263,7 @@ export function formatDeploymentStatus(payload: DeploymentStatusPayload): EventT
 	const bits = repoBits(payload.repository);
 	let accent: AccentKey = "deployment";
 	let icon: IconKey = "deployment";
-	let title = tx("title.deploymentStatus.other", { state: humanizeState(state).toLowerCase() });
+	let title = tx("title.deploymentStatus.other", { state: stateText(state) });
 	let importance: EventTemplate["importance"] = "normal";
 
 	if (state === "success") {

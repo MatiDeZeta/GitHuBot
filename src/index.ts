@@ -11,7 +11,7 @@ import {
 } from "./config/env.js";
 import { createLogger, type Logger } from "./config/logger.js";
 import { parseMasterKey } from "./crypto/secrets.js";
-import { createDb, type DbHandle, migrate } from "./db/index.js";
+import { createDb, type DbHandle, migrate, startHousekeeping } from "./db/index.js";
 import { createServer, type ServerContext } from "./server/app.js";
 
 function renderDefaultsFrom(env: Env): BotContext["renderDefaults"] {
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
 
 	let db: DbHandle | null = null;
 	let bot: Client | null = null;
+	let stopHousekeeping: (() => void) | null = null;
 
 	if (!isFullyConfigured(env)) {
 		logger.warn(
@@ -65,11 +66,13 @@ async function main(): Promise<void> {
 		ctx.masterKey = started.masterKey;
 		ctx.discord = started.bot;
 		ctx.ready = started.ready;
+		stopHousekeeping = startHousekeeping(started.db.repository, logger);
 	}
 
 	const shutdown = async (signal: string) => {
 		logger.info({ signal }, "Shutting down");
 		try {
+			stopHousekeeping?.();
 			await server.close();
 			bot?.destroy();
 			await db?.close();

@@ -9,30 +9,35 @@ import {
 } from "discord.js";
 import { DEFAULT_ENABLED_EVENTS, repoSlugSchema } from "../../config/events.js";
 import {
-	decryptSecret,
 	encryptSecret,
 	generateTrackingId,
 	generateWebhookSecret,
+	tryDecryptSecret,
 } from "../../crypto/secrets.js";
 import { type AppLocale, localizations, type TranslationKey, t } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
-import { DISPLAY_MODES } from "../render/template.js";
-import { THEME_IDS } from "../render/theme.js";
 import {
 	CATEGORY_CHOICES,
+	handleAlerts,
 	handleHealth,
 	handleLanguage,
 	handleMentions,
 	handlePause,
 	handleRoute,
+	handleServerStyle,
 	handleStyle,
 	handleTest,
 	LOCALE_CHOICES,
+	MODE_CHOICES,
+	SERVER_MODE_CHOICES,
+	SERVER_THEME_CHOICES,
 	showFiltersModal,
 	summarizeFilters,
+	THEME_CHOICES,
 } from "./repo-config.js";
 import { categoryView } from "./repo-events.js";
 import {
+	channelAccessWarning,
 	ephemeralText,
 	ephemeralTextEdit,
 	ephemeralV2,
@@ -42,6 +47,9 @@ import {
 	requireTrackedRepo,
 	slugOf,
 } from "./shared.js";
+
+/** A slash command known to come from a server, so `guildId` is a string. */
+type GuildChatInput = ChatInputCommandInteraction<"cached" | "raw">;
 
 const TEXT_CHANNEL_TYPES = [
 	ChannelType.GuildText,
@@ -169,18 +177,47 @@ export const repoCommand = {
 						.setName("theme")
 						.setDescription(t("en", "cmd.repo.style.option.theme"))
 						.setRequired(false)
-						.addChoices(...THEME_IDS.map((theme) => ({ name: theme, value: theme }))),
+						.addChoices(...THEME_CHOICES),
 				)
 				.addStringOption((opt) =>
 					opt
 						.setName("mode")
 						.setDescription(t("en", "cmd.repo.style.option.mode"))
 						.setRequired(false)
-						.addChoices(...DISPLAY_MODES.map((mode) => ({ name: mode, value: mode }))),
+						.addChoices(...MODE_CHOICES),
 				),
 		)
 		.addSubcommand((sub) =>
 			repoOption(describe(sub.setName("health"), "cmd.repo.health.description")),
+		)
+		.addSubcommand((sub) =>
+			describe(sub.setName("server-style"), "cmd.repo.serverStyle.description")
+				.addStringOption((opt) =>
+					opt
+						.setName("theme")
+						.setDescription(t("en", "cmd.repo.style.option.theme"))
+						.setDescriptionLocalizations(localizations("cmd.repo.style.option.theme"))
+						.setRequired(false)
+						.addChoices(...SERVER_THEME_CHOICES),
+				)
+				.addStringOption((opt) =>
+					opt
+						.setName("mode")
+						.setDescription(t("en", "cmd.repo.style.option.mode"))
+						.setDescriptionLocalizations(localizations("cmd.repo.style.option.mode"))
+						.setRequired(false)
+						.addChoices(...SERVER_MODE_CHOICES),
+				),
+		)
+		.addSubcommand((sub) =>
+			describe(sub.setName("alerts"), "cmd.repo.alerts.description").addChannelOption((opt) =>
+				opt
+					.setName("channel")
+					.setDescription(t("en", "cmd.repo.alerts.option.channel"))
+					.setDescriptionLocalizations(localizations("cmd.repo.alerts.option.channel"))
+					.addChannelTypes(...TEXT_CHANNEL_TYPES)
+					.setRequired(false),
+			),
 		)
 		.addSubcommand((sub) =>
 			describe(sub.setName("language"), "cmd.repo.language.description").addStringOption((opt) =>
@@ -199,7 +236,7 @@ export async function handleRepoCommand(
 ): Promise<void> {
 	const { locale } = await guildContext(ctx, interaction);
 
-	if (!interaction.guildId) {
+	if (!interaction.inGuild()) {
 		await interaction.reply(ephemeralText(t(locale, "common.error.guildOnly")));
 		return;
 	}
@@ -240,6 +277,10 @@ export async function handleRepoCommand(
 			return handleStyle(interaction, ctx, locale);
 		case "health":
 			return handleHealth(interaction, ctx, locale);
+		case "server-style":
+			return handleServerStyle(interaction, ctx, locale);
+		case "alerts":
+			return handleAlerts(interaction, ctx, locale);
 		case "language":
 			return handleLanguage(interaction, ctx, locale);
 		default:
@@ -278,18 +319,14 @@ function webhookUrl(publicBase: string, trackingId: string): string {
 	return `${publicBase}/webhooks/github/${trackingId}`;
 }
 
-async function handleAdd(
-	interaction: ChatInputCommandInteraction,
-	ctx: BotContext,
-	locale: AppLocale,
-) {
+async function handleAdd(interaction: GuildChatInput, ctx: BotContext, locale: AppLocale) {
 	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
 		return;
 	}
 	const { owner, repo, slug } = parsed.value;
-	const guildId = interaction.guildId!;
+	const guildId = interaction.guildId;
 	const channel = interaction.options.getChannel("channel") ?? interaction.channel;
 	if (!channel || !("id" in channel)) {
 		await interaction.reply(ephemeralText(t(locale, "repo.add.noChannel")));
@@ -306,7 +343,10 @@ async function handleAdd(
 		flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
 	});
 
-	const warning = await maybeWarnPrivateRepo(owner, repo, locale);
+	const [warning, access] = await Promise.all([
+		maybeWarnPrivateRepo(owner, repo, locale),
+		channelAccessWarning(interaction, channel.id, locale, slug),
+	]);
 	const trackingId = generateTrackingId();
 	const secret = generateWebhookSecret();
 	const encryptedSecret = encryptSecret(secret, ctx.masterKey);
@@ -332,6 +372,7 @@ async function handleAdd(
 		t(locale, "repo.add.heading", { repo: slug }),
 		"",
 		...(warning ? [warning, ""] : []),
+		...(access ? [access, ""] : []),
 		t(locale, "repo.add.intro"),
 		"",
 		t(locale, "repo.add.step1", { url: `https://github.com/${slug}/settings/hooks/new` }),
@@ -349,18 +390,14 @@ async function handleAdd(
 	await interaction.editReply(ephemeralTextEdit(lines.join("\n")));
 }
 
-async function handleRemove(
-	interaction: ChatInputCommandInteraction,
-	ctx: BotContext,
-	locale: AppLocale,
-) {
+async function handleRemove(interaction: GuildChatInput, ctx: BotContext, locale: AppLocale) {
 	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
 		return;
 	}
 	const { owner, repo, slug } = parsed.value;
-	const removed = await ctx.repository.removeRepo(interaction.guildId!, owner, repo);
+	const removed = await ctx.repository.removeRepo(interaction.guildId, owner, repo);
 	if (!removed) {
 		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;
@@ -380,12 +417,8 @@ async function handleRemove(
 	);
 }
 
-async function handleList(
-	interaction: ChatInputCommandInteraction,
-	ctx: BotContext,
-	locale: AppLocale,
-) {
-	const repos = await ctx.repository.listRepos(interaction.guildId!);
+async function handleList(interaction: GuildChatInput, ctx: BotContext, locale: AppLocale) {
+	const repos = await ctx.repository.listRepos(interaction.guildId);
 	if (repos.length === 0) {
 		await interaction.reply(ephemeralText(t(locale, "repo.list.empty")));
 		return;
@@ -395,6 +428,9 @@ async function handleList(
 		const details = [
 			t(locale, "repo.list.events", { count: tracked.enabledEvents.length }),
 			...(tracked.paused ? [t(locale, "repo.list.paused")] : []),
+			...(tracked.observedFullName
+				? [t(locale, "repo.list.observed", { reported: tracked.observedFullName })]
+				: []),
 			...(Object.keys(tracked.eventRoutes).length > 0
 				? [t(locale, "repo.list.routes", { count: Object.keys(tracked.eventRoutes).length })]
 				: []),
@@ -437,11 +473,7 @@ async function handleEvents(
 	await interaction.reply(ephemeralV2(...categoryView(tracked, locale)));
 }
 
-async function handleChannel(
-	interaction: ChatInputCommandInteraction,
-	ctx: BotContext,
-	locale: AppLocale,
-) {
+async function handleChannel(interaction: GuildChatInput, ctx: BotContext, locale: AppLocale) {
 	const parsed = parseRepoSlug(interaction.options.getString("repository", true));
 	if ("error" in parsed) {
 		await interaction.reply(ephemeralText(parsed.error));
@@ -449,14 +481,14 @@ async function handleChannel(
 	}
 	const { owner, repo, slug } = parsed.value;
 	const channel = interaction.options.getChannel("channel", true);
-	const updated = await ctx.repository.updateChannel(interaction.guildId!, owner, repo, channel.id);
+	const updated = await ctx.repository.updateChannel(interaction.guildId, owner, repo, channel.id);
 	if (!updated) {
 		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;
 	}
-	await interaction.reply(
-		ephemeralText(t(locale, "repo.channel.done", { repo: slug, channel: channel.id })),
-	);
+	const access = await channelAccessWarning(interaction, channel.id, locale, slugOf(updated));
+	const done = t(locale, "repo.channel.done", { repo: slug, channel: channel.id });
+	await interaction.reply(ephemeralText(access ? `${done}\n\n${access}` : done));
 }
 
 async function handleWebhookInfo(
@@ -467,9 +499,15 @@ async function handleWebhookInfo(
 	const tracked = await requireTrackedRepo(ctx, interaction, locale);
 	if (!tracked) return;
 
-	const secret = decryptSecret(tracked.encryptedSecret, ctx.masterKey);
-	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);
 	const slug = slugOf(tracked);
+	const secret = tryDecryptSecret(tracked.encryptedSecret, ctx.masterKey);
+	if (secret === null) {
+		await interaction.reply(
+			ephemeralText(t(locale, "repo.webhookInfo.undecryptable", { repo: slug })),
+		);
+		return;
+	}
+	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);
 
 	await interaction.reply(
 		ephemeralText(
@@ -503,7 +541,12 @@ async function handleRegenerateSecret(
 		owner: tracked.owner,
 		repo: tracked.repo,
 		encryptedSecret,
-		encryptedPreviousSecret: tracked.encryptedSecret,
+		// A secret stored under an earlier MASTER_KEY cannot bridge anything, so
+		// only keep the old one as a fallback while it still decrypts.
+		encryptedPreviousSecret:
+			tryDecryptSecret(tracked.encryptedSecret, ctx.masterKey) === null
+				? null
+				: tracked.encryptedSecret,
 	});
 
 	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);

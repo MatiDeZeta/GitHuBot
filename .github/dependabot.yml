@@ -33,6 +33,11 @@ updates:
       security:
         applies-to: security-updates
         patterns: ["*"]
+    ignore:
+      # @types/node must describe the Node major we actually run (see the docker
+      # entry below), not the newest one — moving it is part of a runtime upgrade.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     labels: [dependencies]
 
   # Actions are pinned to commit SHAs in the workflow; Dependabot understands
@@ -44,6 +49,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 3
+    groups:
+      # One PR for all action bumps; they are reviewed the same way.
+      actions:
+        patterns: ["*"]
     labels: [dependencies, ci]
 
   # The Dockerfile pins node by digest; without this the pin would go stale and
@@ -54,4 +63,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 3
+    ignore:
+      # Digest and minor/patch updates only. A new Node major is a deliberate
+      # runtime upgrade (engines, CI, @types/node move with it), and odd majors are
+      # never LTS — Dependabot proposed 25-alpine, which is both.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
     labels: [dependencies, docker]

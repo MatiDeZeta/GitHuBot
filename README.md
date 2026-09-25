@@ -8,8 +8,8 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.2.0-8b5cf6?style=flat-square" alt="Version"></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-22_LTS-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.3.0-8b5cf6?style=flat-square" alt="Version"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-24_LTS-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node"></a>
   <a href="https://discord.js.org/"><img src="https://img.shields.io/badge/discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white" alt="discord.js"></a>
   <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-11-F69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm"></a>
 </p>
@@ -30,7 +30,7 @@
 2. Deploy GitHuBot (Railway / Docker / local) and set the [environment variables](#environment-variables).
 3. Attach a **persistent volume** at `/app/data` if using SQLite (so tracked repos survive redeploys).
 4. In Discord, run `/repo add repository:owner/repo channel:#changelog` (requires **Manage Server**).
-5. Create the GitHub webhook from the ephemeral instructions (Payload URL + secret), content type `application/json`, **Send me everything**.
+5. Create the GitHub webhook from the ephemeral instructions (Payload URL + secret), content type `application/json` (GitHub's form-encoded default is accepted too), **Send me everything**.
 6. Run `/repo test owner/repo` to confirm the channel works, then `/repo events owner/repo` to choose what gets posted.
 
 > [**ⓘ**](#slash-commands) Optional: set `DISCORD_ALLOWED_USER_ID` to lock `/repo` commands to a single Discord user ID.
@@ -54,6 +54,7 @@ GitHub’s built-in Discord integration dumps generic embeds. GitHuBot turns the
 8. **SQLite by default** — Railway/Docker volume; Postgres via `DATABASE_URL`
 9. **Secret rotation** — `/repo regenerate-secret` with graceful cutover
 10. **Metrics-driven presence** and a `/stats` command
+11. **Setup guard rails** — JSON or GitHub's form-encoded default, missing channel permissions flagged on `/repo add`, renamed or misplaced repositories detected
 
 ### Architecture
 
@@ -113,12 +114,14 @@ flowchart TD
 | `/repo route` | Send one category to a different channel |
 | `/repo mentions` | Ping a role for one category |
 | `/repo filters` | Branch / label / author rules (modal) |
-| `/repo style` | Theme and display density |
+| `/repo style` | Theme and display density, with a live preview |
+| `/repo server-style` | Default theme and density for every repo in the server |
 | `/repo pause` · `/repo resume` | Mute without touching GitHub |
-| `/repo test` | Post a sample message to verify setup |
+| `/repo test` | Post a realistic sample of any event to verify setup |
 | `/repo health` | Delivery counters and the last error |
 | `/repo webhook-info` | Re-show Payload URL + secret |
 | `/repo regenerate-secret` | Rotate the secret with a grace period |
+| `/repo alerts` | Post an alert in a channel when a repo's deliveries start failing (and recover) |
 | `/repo language` | Set this server's language |
 | `/help` | Setup, events, filters, appearance, troubleshooting |
 | `/stats` | Uptime, counters, latency, busiest repos |
@@ -173,19 +176,33 @@ Branch rules apply to any event whose payload names a branch: pushes, branch/tag
 
 ## Appearance
 
-**Themes** — `/repo style owner/repo theme:<id>`
+**Themes** — `/repo style owner/repo theme:<name>` for one repository, or `/repo server-style` for the whole server. Both reply with a preview of a merge and a failed run in the chosen style.
 
 | Theme | Look |
 |---|---|
-| `default` | Balanced, saturated accents |
+| Classic (`default`) | Balanced, saturated accents |
 | `github` | Mirrors GitHub's own state colors |
 | `neon` | High saturation, tuned for dark themes |
+| `catppuccin` | Catppuccin Mocha pastels |
+| `nord` | Nord's cool frost blues |
+| `accessible` | Okabe–Ito palette, distinguishable with common colour blindness |
 | `mono` | Single neutral grey |
-| `language` | Accent from the repository's primary language |
+| `language` | Accent from the repository's language (GitHub's full Linguist list); pass/fail and severity keep their colours |
+
+Resolution order: the repository's own style → the server default → `DEFAULT_THEME` / `DEFAULT_DISPLAY_MODE`. Choose **Server default** in `/repo style` to go back to following the server.
 
 **Density** — `/repo style owner/repo mode:<detailed\|compact>`. Detailed shows avatars, quoted bodies, labelled fields, media galleries and relative timestamps; compact is one line plus link buttons.
 
-**Icons** — every glyph is a Unicode default. Override any of them with custom application emojis:
+**Icons** — GitHuBot ships GitHub's own [Octicons](https://primer.style/octicons) as coloured icons (merge, PR, CI status, severity …). Upload them once as the bot's application emojis and it uses them everywhere instead of Unicode:
+
+```bash
+pnpm emojis:sync                                        # from a checkout (reads .env)
+docker compose exec githubot node dist/tools/sync-emojis.js   # Docker
+```
+
+Or set `EMOJI_SYNC=true` to upload any missing ones at startup — handy on Railway. Application emojis belong to the bot, so they work in every server without using a server's emoji slots. Without them the Unicode defaults are used.
+
+Override individual icons with your own emojis; these win over the bundled set:
 
 ```
 EMOJI_OVERRIDES={"push":"<:push:123456789012345678>","merged":"<:merged:123456789012345678>"}
@@ -212,7 +229,7 @@ The Streaming activity is skipped unless `PRESENCE_STREAM_URL` points at Twitch 
 
 ## Translations
 
-All user-facing text lives in `src/i18n/locales/en.ts` as a flat, typed catalog. English is the only language shipped in 1.1.0, but the infrastructure is complete.
+All user-facing text lives in `src/i18n/locales/en.ts` as a flat, typed catalog. GitHuBot ships with English (`en`) and Spanish (`es`); the web dashboard is English-only.
 
 To add one:
 
@@ -226,7 +243,7 @@ Servers choose their language with `/repo language`. Resolution order is guild s
 
 ## Getting started (development)
 
-- [Node.js](https://nodejs.org/) 22+
+- [Node.js](https://nodejs.org/) 24 LTS
 - [pnpm](https://pnpm.io/) 11+
 - Discord bot token (`DISCORD_TOKEN`) + application ID (`DISCORD_CLIENT_ID`)
 
@@ -255,6 +272,7 @@ pnpm dev
 | `PORT` / `HOST` | no | Default `3000` / `0.0.0.0` |
 | `TRUST_PROXY` | no | `true`/`false` or an IP/CIDR list. Required for per-IP rate limiting behind a proxy |
 | `WEBHOOK_BODY_LIMIT` | no | Max delivery size in bytes. Default `26214400` (GitHub's 25 MiB cap) |
+| `WEBHOOK_RATE_LIMIT` | no | Deliveries accepted per minute from one IP. Default `600` |
 | `METRICS_TOKEN` | no | When set, `/metrics` requires `Authorization: Bearer <token>` |
 | `DASHBOARD_ENABLED` | no | Serve the optional read-only web dashboard. Default `false` |
 | `DASHBOARD_BASE_URL` | no | Public origin the dashboard is served from (required with the above) |
@@ -267,6 +285,7 @@ pnpm dev
 | `EMOJI_OVERRIDES` | no | JSON map of icon key → custom emoji |
 | `PRESENCE_STREAM_URL` | no | Twitch/YouTube URL enabling the Streaming activity |
 | `PRESENCE_ROTATION` | no | JSON array replacing the built-in presence lineup |
+| `EMOJI_SYNC` | no | Upload the bundled GitHub-style icons as app emojis at startup. Default `false` |
 
 <sub>*Required for full Discord + webhook mode. Without them the process still serves `/health` (degraded boot).</sub>
 
@@ -343,11 +362,13 @@ The image entrypoint `chown`s `/app/data` on boot so the non-root process can cr
 
 ---
 
-## Upgrading to 1.1.0
+## Upgrading
 
-Deploy and restart. Migration `0002_v110` runs automatically and every new column is nullable or defaulted, so existing tracked repositories keep their channel, event selection and secrets. No new environment variables are required.
+Deploy and restart. Migrations run automatically on boot, each one in a transaction, and every column added so far is nullable or defaulted — existing tracked repositories keep their channel, event selection and secrets. No release to date has required a new environment variable.
 
-See [`CHANGELOG.md`](CHANGELOG.md) and [`RELEASE_NOTES_v1.1.0.md`](RELEASE_NOTES_v1.1.0.md) for the full list.
+**1.3.0** requires Node.js 24 when running outside Docker (`pnpm start` / `pnpm dev`); the Docker image already includes it.
+
+Version-specific notes are in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -358,9 +379,17 @@ See [`CHANGELOG.md`](CHANGELOG.md) and [`RELEASE_NOTES_v1.1.0.md`](RELEASE_NOTES
 | Nothing arrives | Check **Recent Deliveries** on the GitHub webhook page, then `/repo health` |
 | `401` on deliveries | Secret mismatch — run `/repo regenerate-secret` and update GitHub |
 | `404` on deliveries | Stale Payload URL — re-copy it from `/repo webhook-info` |
-| Message never posts | Bot needs **View Channel** and **Send Messages**; `/repo test` will surface the exact error |
+| Message never posts | Bot needs **View Channel** and **Send Messages**; `/repo test` will surface the exact error. Once fixed, use **Redeliver** on GitHub to post the missed event |
+| "GitHub reports a different repository" | The repository was renamed or transferred (messages still post; only the name GitHuBot shows is stale), or the webhook was added to another repository — delete it there |
+| No alert when a repo breaks | Set an alert channel with `/repo alerts` |
 | Data lost on redeploy | Mount SQLite under `/app/data` and set `DATABASE_URL` to match |
-| Secrets stopped working | `MASTER_KEY` changed — rotate with `/repo regenerate-secret` |
+| Secrets stopped working | `MASTER_KEY` changed — run `/repo regenerate-secret` and paste the new secret into GitHub |
+
+---
+
+## Privacy
+
+GitHuBot stores Discord IDs, repository names, settings, an encrypted webhook secret and 30 days of delivery IDs — never webhook payloads, message contents or GitHub credentials. When the bot is removed from a server, that server's data is deleted 7 days later. [`PRIVACY.md`](PRIVACY.md) lists everything.
 
 ---
 
@@ -383,6 +412,8 @@ Operational hardening:
 - Set **`METRICS_TOKEN`** if the instance is reachable from the internet; `/health` stays public for platform health checks.
 - Unhandled errors return a generic body, never the underlying driver message.
 - `/repo` autocomplete honours `DISCORD_ALLOWED_USER_ID`, so tracked repo slugs are not enumerable by other Manage Server holders.
+- Rate limits are counted before a request body is read, so a flood is refused without buffering it.
+- Delivery ids are kept for 30 days — well past GitHub's 3-day redelivery window — and then pruned, so the dedupe ledger stays bounded.
 
 ---
 

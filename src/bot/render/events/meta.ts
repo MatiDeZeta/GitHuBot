@@ -7,17 +7,16 @@ import type {
 	ProjectsV2ItemPayload,
 	RepositoryPayload,
 } from "../../../github/payloads.js";
-import type { TranslationKey } from "../../../i18n/index.js";
+import type { I18nText, TranslationKey } from "../../../i18n/index.js";
 import { tx } from "../../../i18n/index.js";
-import { truncate } from "../blocks.js";
 import type { EventTemplate, TemplateField } from "../template.js";
 import {
 	actorBits,
 	code,
-	humanizeState,
 	links,
 	repoBits,
 	repositoryLink,
+	stateText,
 	titleText,
 } from "./common.js";
 
@@ -61,13 +60,13 @@ export function formatGollum(payload: GollumPayload): EventTemplate | null {
 	if (pages.length === 0) return null;
 
 	const bits = repoBits(payload.repository);
-	const lines = pages.slice(0, 8).map((page) => {
+	const lines: I18nText[] = pages.slice(0, 8).map((page) => {
 		const name = titleText(page.title ?? page.page_name, 80);
 		const action = page.action ? ` _(${page.action})_` : "";
 		return page.html_url ? `[${name}](${page.html_url})${action}` : `${name}${action}`;
 	});
 	if (pages.length > lines.length) {
-		lines.push(`_…and ${pages.length - lines.length} more_`);
+		lines.push(tx("common.andMore", { count: pages.length - lines.length }));
 	}
 
 	return {
@@ -81,7 +80,7 @@ export function formatGollum(payload: GollumPayload): EventTemplate | null {
 		repoUrl: bits.repoUrl,
 		language: bits.language,
 		actor: actorBits(payload.sender),
-		body: truncate(lines.join("\n"), 900),
+		body: lines,
 		links: links({ label: tx("link.wiki"), url: `${bits.repoUrl}/wiki` }, repositoryLink(bits)),
 		timestamp: new Date(),
 		importance: "low",
@@ -100,7 +99,7 @@ export function formatProjectsV2Item(payload: ProjectsV2ItemPayload): EventTempl
 	return {
 		accent: "project",
 		icon: "project",
-		title: tx("title.projectItem", { action: humanizeState(payload.action).toLowerCase() }),
+		title: tx("title.projectItem", { action: stateText(payload.action) }),
 		subtitle: contentType ? code(contentType) : undefined,
 		repo: bits.repo,
 		repoUrl: bits.repoUrl,

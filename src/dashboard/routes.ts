@@ -15,6 +15,7 @@ import {
 	type DashboardSession,
 	decodeSession,
 	encodeSession,
+	fitCookieBudget,
 	OAUTH_STATE_COOKIE,
 	readCookie,
 	SESSION_COOKIE,
@@ -179,16 +180,29 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 					);
 				}
 
-				const session: DashboardSession = {
-					userId: user.id,
-					username: user.username,
-					avatarUrl: user.avatarUrl,
-					guildIds: guilds.map((g) => g.id),
-					guilds,
-					csrfToken: createCsrfToken(),
-					expiresAt: Date.now() + sessionSeconds * 1000,
-				};
-				ctx.logger.info({ userId: user.id, guilds: guilds.length }, "Dashboard sign-in");
+				// A server the bot is not in has nothing to show, and every entry costs
+				// cookie space: keeping them all pushed people who manage many servers
+				// past the browser's cookie limit, so sign-in silently never stuck.
+				const reachable = guilds.filter((guild) => ctx.discord.guilds.cache.has(guild.id));
+				const session = fitCookieBudget(
+					{
+						userId: user.id,
+						username: user.username,
+						avatarUrl: user.avatarUrl,
+						guildIds: reachable.map((g) => g.id),
+						guilds: reachable,
+						csrfToken: createCsrfToken(),
+						expiresAt: Date.now() + sessionSeconds * 1000,
+					},
+					ctx.masterKey,
+				);
+				if (session.guilds.length < reachable.length) {
+					ctx.logger.warn(
+						{ userId: user.id, kept: session.guilds.length, reachable: reachable.length },
+						"Dashboard session trimmed to fit the cookie size limit",
+					);
+				}
+				ctx.logger.info({ userId: user.id, guilds: session.guilds.length }, "Dashboard sign-in");
 				return reply
 					.header("set-cookie", [
 						serializeCookie(sessionCookie, encodeSession(session, ctx.masterKey), {

@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { EventType } from "../config/events.js";
 import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
@@ -24,6 +24,19 @@ function emptyBuckets(days: number): number[] {
 	return new Array<number>(days).fill(0);
 }
 
+/**
+ * GitHub treats owner and repository names case-insensitively, so `/repo remove
+ * acme/app` must find a repository added as `Acme/App` — and adding it twice under
+ * different casing must be caught as a duplicate.
+ */
+function repoMatches(guildId: string, owner: string, repo: string) {
+	return and(
+		eq(schema.trackedRepos.guildId, guildId),
+		sql`lower(${schema.trackedRepos.owner}) = lower(${owner})`,
+		sql`lower(${schema.trackedRepos.repo}) = lower(${repo})`,
+	);
+}
+
 type PgDb = PostgresJsDatabase<typeof schema>;
 
 type RepoUpdate = Partial<typeof schema.trackedRepos.$inferInsert>;
@@ -38,13 +51,7 @@ export function createPgRepository(db: PgDb): RepoRepository {
 		const [row] = await db
 			.update(schema.trackedRepos)
 			.set({ ...values, updatedAt: new Date() })
-			.where(
-				and(
-					eq(schema.trackedRepos.guildId, guildId),
-					eq(schema.trackedRepos.owner, owner),
-					eq(schema.trackedRepos.repo, repo),
-				),
-			)
+			.where(repoMatches(guildId, owner, repo))
 			.returning();
 		return row ? mapRepoRow(row) : null;
 	}
@@ -68,6 +75,9 @@ export function createPgRepository(db: PgDb): RepoRepository {
 					...(settings.defaultTheme !== undefined ? { defaultTheme: settings.defaultTheme } : {}),
 					...(settings.defaultDisplayMode !== undefined
 						? { defaultDisplayMode: settings.defaultDisplayMode }
+						: {}),
+					...(settings.alertChannelId !== undefined
+						? { alertChannelId: settings.alertChannelId }
 						: {}),
 					updatedAt: new Date(),
 				})
@@ -96,14 +106,12 @@ export function createPgRepository(db: PgDb): RepoRepository {
 		async removeRepo(guildId, owner, repo) {
 			const [row] = await db
 				.delete(schema.trackedRepos)
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, guildId),
-						eq(schema.trackedRepos.owner, owner),
-						eq(schema.trackedRepos.repo, repo),
-					),
-				)
+				.where(repoMatches(guildId, owner, repo))
 				.returning();
+			// Nothing about a removed repository outlives it, not even its delivery ids.
+			if (row) {
+				await db.delete(schema.deliveries).where(eq(schema.deliveries.trackingId, row.trackingId));
+			}
 			return row ? mapRepoRow(row) : null;
 		},
 
@@ -124,13 +132,7 @@ export function createPgRepository(db: PgDb): RepoRepository {
 			const [row] = await db
 				.select()
 				.from(schema.trackedRepos)
-				.where(
-					and(
-						eq(schema.trackedRepos.guildId, guildId),
-						eq(schema.trackedRepos.owner, owner),
-						eq(schema.trackedRepos.repo, repo),
-					),
-				);
+				.where(repoMatches(guildId, owner, repo));
 			return row ? mapRepoRow(row) : null;
 		},
 
@@ -202,6 +204,63 @@ export function createPgRepository(db: PgDb): RepoRepository {
 				.onConflictDoNothing()
 				.returning({ deliveryId: schema.deliveries.deliveryId });
 			return rows.length > 0;
+		},
+
+		async setGuildLeft(guildId, leftAt) {
+			const pending = leftAt ? isNull(schema.guilds.leftAt) : isNotNull(schema.guilds.leftAt);
+			await db
+				.update(schema.guilds)
+				.set({ leftAt, updatedAt: new Date() })
+				.where(and(eq(schema.guilds.guildId, guildId), pending));
+		},
+
+		async listGuildIds() {
+			const rows = await db.select({ guildId: schema.guilds.guildId }).from(schema.guilds);
+			return rows.map((row) => row.guildId);
+		},
+
+		async purgeGuildsLeftBefore(cutoff) {
+			return db.transaction(async (tx) => {
+				const gone = (
+					await tx
+						.select({ guildId: schema.guilds.guildId })
+						.from(schema.guilds)
+						.where(lt(schema.guilds.leftAt, cutoff))
+				).map((row) => row.guildId);
+				if (gone.length === 0) return 0;
+				const trackingIds = (
+					await tx
+						.select({ trackingId: schema.trackedRepos.trackingId })
+						.from(schema.trackedRepos)
+						.where(inArray(schema.trackedRepos.guildId, gone))
+				).map((row) => row.trackingId);
+				if (trackingIds.length > 0) {
+					await tx
+						.delete(schema.deliveries)
+						.where(inArray(schema.deliveries.trackingId, trackingIds));
+				}
+				// Tracked repositories go with the guild through ON DELETE CASCADE.
+				await tx.delete(schema.guilds).where(inArray(schema.guilds.guildId, gone));
+				return gone.length;
+			});
+		},
+
+		async setObservedFullName(trackingId, fullName) {
+			await db
+				.update(schema.trackedRepos)
+				.set({ observedFullName: fullName })
+				.where(eq(schema.trackedRepos.trackingId, trackingId));
+		},
+
+		async releaseDelivery(deliveryId) {
+			await db.delete(schema.deliveries).where(eq(schema.deliveries.deliveryId, deliveryId));
+		},
+
+		async pruneDeliveries(olderThan) {
+			const result = await db
+				.delete(schema.deliveries)
+				.where(lt(schema.deliveries.createdAt, olderThan));
+			return result.count;
 		},
 
 		async activityByDay(trackingIds, days) {

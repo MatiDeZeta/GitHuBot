@@ -12,11 +12,12 @@ import {
 } from "../config/env.js";
 import { githubEventToType } from "../config/events.js";
 import type { Logger } from "../config/logger.js";
-import { decryptSecret } from "../crypto/secrets.js";
+import { tryDecryptSecret } from "../crypto/secrets.js";
 import { registerDashboard } from "../dashboard/routes.js";
 import { notConfiguredPage } from "../dashboard/views.js";
-import type { RepoRepository } from "../db/types.js";
-import { type DispatchContext, dispatchEvent } from "../delivery/dispatch.js";
+import type { RepoRepository, TrackedRepo } from "../db/types.js";
+import { type DispatchContext, type DispatchOutcome, dispatchEvent } from "../delivery/dispatch.js";
+import { repositoryMismatch } from "../github/repository.js";
 import { verifyGitHubSignature } from "../github/verify.js";
 import { metrics } from "../metrics.js";
 
@@ -60,15 +61,20 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		try {
 			const json = raw.length > 0 ? JSON.parse(raw) : {};
 			done(null, json);
-		} catch (err) {
-			done(err as Error, undefined);
+		} catch {
+			// A bare SyntaxError carries no status, so it surfaced as a 500 and an
+			// error-level log that any unauthenticated caller could trigger at will.
+			done(badRequest("Request body is not valid JSON"), undefined);
 		}
 	});
 
+	// `onRequest` counts a request before its body is read. At `preHandler` a
+	// flood was only refused after buffering up to WEBHOOK_BODY_LIMIT per request.
+	// Route-level limits inherit this hook.
 	await app.register(rateLimit, {
 		max: 100,
 		timeWindow: "1 minute",
-		hook: "preHandler",
+		hook: "onRequest",
 	});
 
 	app.get("/health", async () => ({
@@ -121,20 +127,54 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		);
 	}
 
-	app.post<{ Params: { trackingId: string } }>(
-		"/webhooks/github/:trackingId",
-		{
-			config: {
-				rateLimit: {
-					max: 60,
-					timeWindow: "1 minute",
+	// Encapsulated so its form parser applies to this route only; the dashboard
+	// registers a different one for its own forms.
+	await app.register(async (hooks: FastifyInstance) => {
+		// GitHub's default content type. The body is `payload=<url-encoded JSON>` and
+		// the signature covers it exactly as sent, so the raw string is kept for
+		// verification and only the `payload` field is parsed.
+		hooks.addContentTypeParser(
+			"application/x-www-form-urlencoded",
+			{ parseAs: "string" },
+			(req, body, done) => {
+				const raw = typeof body === "string" ? body : body.toString("utf8");
+				req.rawBody = raw;
+				const payload = new URLSearchParams(raw).get("payload");
+				if (payload === null) {
+					done(badRequest("Form body has no payload field"), undefined);
+					return;
+				}
+				try {
+					done(null, JSON.parse(payload));
+				} catch {
+					done(badRequest("Request body is not valid JSON"), undefined);
+				}
+			},
+		);
+
+		hooks.post<{ Params: { trackingId: string } }>(
+			"/webhooks/github/:trackingId",
+			{
+				config: {
+					rateLimit: {
+						// GitHub delivers from a small pool of addresses and never retries a
+						// 429, so this must clear a busy repository's CI bursts.
+						max: ctx.env.WEBHOOK_RATE_LIMIT,
+						timeWindow: "1 minute",
+					},
 				},
 			},
-		},
-		async (request, reply) => handleWebhook(request, reply, ctx),
-	);
+			async (request, reply) => handleWebhook(request, reply, ctx),
+		);
+	});
 
 	return app;
+}
+
+function badRequest(message: string): FastifyError {
+	const error = new Error(message) as FastifyError;
+	error.statusCode = 400;
+	return error;
 }
 
 async function handleWebhook(
@@ -169,16 +209,23 @@ async function handleWebhook(
 		return reply.code(404).send({ error: "Unknown webhook" });
 	}
 
-	let secret: string;
-	const previousSecrets: string[] = [];
-	try {
-		secret = decryptSecret(tracked.encryptedSecret, masterKey);
-		if (tracked.encryptedPreviousSecret) {
-			previousSecrets.push(decryptSecret(tracked.encryptedPreviousSecret, masterKey));
-		}
-	} catch (err) {
-		ctx.logger.error({ err, trackingId }, "Failed to decrypt webhook secret");
+	const secret = tryDecryptSecret(tracked.encryptedSecret, masterKey);
+	if (secret === null) {
+		ctx.logger.error({ trackingId }, "Failed to decrypt webhook secret");
 		return reply.code(500).send({ error: "Server configuration error" });
+	}
+
+	// The previous secret only bridges a rotation. One stored under an earlier
+	// MASTER_KEY can never match, so it must not block the current secret — that
+	// is exactly the state `/repo regenerate-secret` leaves after a key change.
+	const previousSecrets: string[] = [];
+	if (tracked.encryptedPreviousSecret) {
+		const previous = tryDecryptSecret(tracked.encryptedPreviousSecret, masterKey);
+		if (previous === null) {
+			ctx.logger.warn({ trackingId }, "Ignoring previous webhook secret that no longer decrypts");
+		} else {
+			previousSecrets.push(previous);
+		}
 	}
 
 	const match = await verifyGitHubSignature(secret, rawBody, signature, previousSecrets);
@@ -200,6 +247,11 @@ async function handleWebhook(
 
 	metrics.recordReceived();
 
+	// Only after the signature holds: the name comes from whoever has the secret.
+	// Checked before `ping`, which is the first delivery after setup, so a webhook
+	// added to the wrong repository shows up before any event is missed.
+	await noteReportedRepository(ctx, tracked, request.body);
+
 	if (eventName === "ping") {
 		ctx.logger.info({ trackingId }, "GitHub ping received");
 		return reply.code(200).send({ ok: true, ping: true });
@@ -210,19 +262,32 @@ async function handleWebhook(
 		return reply.code(200).send({ ok: true, ignored: true, reason: "unsupported_event" });
 	}
 
-	const guild = await repository.getGuildSettings(tracked.guildId);
-	const outcome = await dispatchEvent(
-		{
-			client: discord,
-			repository,
-			logger: ctx.logger,
-			defaults: ctx.renderDefaults,
-		},
-		tracked,
-		eventType,
-		request.body,
-		guild,
-	);
+	let outcome: DispatchOutcome;
+	try {
+		const guild = await repository.getGuildSettings(tracked.guildId);
+		outcome = await dispatchEvent(
+			{
+				client: discord,
+				repository,
+				logger: ctx.logger,
+				defaults: ctx.renderDefaults,
+			},
+			tracked,
+			eventType,
+			request.body,
+			guild,
+		);
+	} catch (err) {
+		await releaseClaim(ctx, deliveryId);
+		throw err;
+	}
+
+	// Nothing reached Discord, so un-record the delivery: once the channel or
+	// permissions are fixed, GitHub's "Redeliver" must post it rather than be
+	// ignored as a duplicate of this attempt.
+	if (outcome.status === "failed" || outcome.status === "bad_channel") {
+		await releaseClaim(ctx, deliveryId);
+	}
 
 	switch (outcome.status) {
 		case "delivered":
@@ -251,6 +316,39 @@ async function handleWebhook(
 			return reply.code(200).send({ ok: true, delivered: false, reason: "bad_channel" });
 		case "failed":
 			return reply.code(500).send({ error: "Delivery failed" });
+	}
+}
+
+/** Writes only when the state changes, so a steady stream of deliveries costs nothing. */
+async function noteReportedRepository(
+	ctx: ServerContext,
+	tracked: TrackedRepo,
+	payload: unknown,
+): Promise<void> {
+	const reported = repositoryMismatch(tracked, payload);
+	if (reported === undefined || reported === tracked.observedFullName) return;
+	try {
+		await ctx.repository?.setObservedFullName(tracked.trackingId, reported);
+		if (reported !== null) {
+			ctx.logger.warn(
+				{ trackingId: tracked.trackingId, tracked: `${tracked.owner}/${tracked.repo}`, reported },
+				"Webhook delivery names a different repository",
+			);
+		}
+	} catch (err) {
+		ctx.logger.error(
+			{ err, trackingId: tracked.trackingId },
+			"Failed to record reported repository",
+		);
+	}
+}
+
+/** Best effort: failing to release only costs a later redelivery, never this response. */
+async function releaseClaim(ctx: ServerContext, deliveryId: string): Promise<void> {
+	try {
+		await ctx.repository?.releaseDelivery(deliveryId);
+	} catch (err) {
+		ctx.logger.error({ err, deliveryId }, "Failed to release delivery for redelivery");
 	}
 }
 

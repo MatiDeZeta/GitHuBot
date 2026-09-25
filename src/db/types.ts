@@ -47,6 +47,12 @@ export interface TrackedRepo {
 	lastSuccessAt: Date | null;
 	lastErrorAt: Date | null;
 	lastError: string | null;
+	/**
+	 * The `owner/repo` GitHub last reported in a verified delivery, when it differs
+	 * from the tracked name — a rename, a transfer, or a webhook added to the wrong
+	 * repository. Null while they match.
+	 */
+	observedFullName: string | null;
 	deliveredCount: number;
 	failedCount: number;
 
@@ -59,6 +65,8 @@ export interface GuildSettings {
 	locale: AppLocale | null;
 	defaultTheme: ThemeId | null;
 	defaultDisplayMode: DisplayMode | null;
+	/** Channel for delivery-failure alerts, or null when alerts are off. */
+	alertChannelId: string | null;
 }
 
 export interface CreateTrackedRepoInput {
@@ -77,8 +85,11 @@ export interface RotateSecretInput {
 	repo: string;
 	/** New current secret (encrypted). */
 	encryptedSecret: string;
-	/** Previous current secret retained for verifyWithFallback. */
-	encryptedPreviousSecret: string;
+	/**
+	 * Previous current secret retained for verifyWithFallback, or null when it is
+	 * not worth keeping (it was stored under a `MASTER_KEY` that has since changed).
+	 */
+	encryptedPreviousSecret: string | null;
 }
 
 export interface RepoStyleInput {
@@ -159,6 +170,28 @@ export interface RepoRepository {
 	clearPreviousSecret(trackingId: string): Promise<void>;
 	/** Returns true if this delivery is new and was recorded; false if duplicate. */
 	tryRecordDelivery(deliveryId: string, trackingId: string): Promise<boolean>;
+	/**
+	 * Forgets a recorded delivery that never reached Discord, so GitHub's
+	 * "Redeliver" (which reuses the same X-GitHub-Delivery id) is processed again
+	 * instead of being dropped as a duplicate.
+	 */
+	releaseDelivery(deliveryId: string): Promise<void>;
+	/**
+	 * Marks the bot as removed from a server (a date) or back in it (null). An existing
+	 * mark is kept, so restarts never reset the grace period.
+	 */
+	setGuildLeft(guildId: string, leftAt: Date | null): Promise<void>;
+	/** Every server GitHuBot holds data for, to reconcile against Discord at startup. */
+	listGuildIds(): Promise<string[]>;
+	/**
+	 * Deletes every server the bot left before `cutoff`, with its tracked repositories
+	 * (by cascade) and their delivery records. Returns how many servers were purged.
+	 */
+	purgeGuildsLeftBefore(cutoff: Date): Promise<number>;
+	/** Records the name GitHub reports for this webhook, or null when it matches. */
+	setObservedFullName(trackingId: string, fullName: string | null): Promise<void>;
+	/** Deletes ledger rows older than `olderThan`; returns how many were removed. */
+	pruneDeliveries(olderThan: Date): Promise<number>;
 	/** Updates the health counters shown by `/repo health` and `/repo list`. */
 	recordDeliveryResult(result: DeliveryResult): Promise<void>;
 	/**

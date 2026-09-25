@@ -32,6 +32,7 @@ export interface RawRepoRow {
 	lastSuccessAt: Date | null;
 	lastErrorAt: Date | null;
 	lastError: string | null;
+	observedFullName: string | null;
 	deliveredCount: number;
 	failedCount: number;
 	createdAt: Date;
@@ -43,6 +44,7 @@ export interface RawGuildRow {
 	locale: string | null;
 	defaultTheme: string | null;
 	defaultDisplayMode: string | null;
+	alertChannelId: string | null;
 }
 
 /** JSON columns can hold legacy text, so every read is defensive. */
@@ -132,6 +134,7 @@ export function mapRepoRow(row: RawRepoRow): TrackedRepo {
 		lastSuccessAt: row.lastSuccessAt ?? null,
 		lastErrorAt: row.lastErrorAt ?? null,
 		lastError: row.lastError ?? null,
+		observedFullName: row.observedFullName ?? null,
 		deliveredCount: row.deliveredCount ?? 0,
 		failedCount: row.failedCount ?? 0,
 		createdAt: row.createdAt,
@@ -145,6 +148,7 @@ export function mapGuildRow(row: RawGuildRow): GuildSettings {
 		locale: asLocale(row.locale),
 		defaultTheme: asTheme(row.defaultTheme),
 		defaultDisplayMode: asDisplayMode(row.defaultDisplayMode),
+		alertChannelId: row.alertChannelId ?? null,
 	};
 }
 

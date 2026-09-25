@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { envWarnings, loadEnv } from "../../config/env.js";
-import { escapeMarkdown, neutralizeBodyMarkdown, stripInvisible } from "./blocks.js";
+import { escapeMarkdown, neutralizeBodyMarkdown, plainText, stripInvisible } from "./blocks.js";
 import { quote } from "./events/common.js";
 
 describe("untrusted text hardening", () => {
@@ -32,6 +32,29 @@ describe("untrusted text hardening", () => {
 	it("quotes a body and applies the same hardening per line", () => {
 		const quoted = quote("## Heading\n[label](https://evil.example)");
 		expect(quoted).toBe("> \\## Heading\n> \\[label\\](https://evil.example)");
+	});
+
+	it("escapes masked-link syntax in titles, not just bodies", () => {
+		expect(escapeMarkdown("[Click](https://evil.example)")).toBe(
+			"\\[Click\\](https://evil.example)",
+		);
+	});
+
+	it("never lets untrusted text render a role, channel or command pill", () => {
+		expect(escapeMarkdown("<@&123> <#456> </deploy:789>")).toBe(
+			"\\<@&123\\> \\<#456\\> \\</deploy:789\\>",
+		);
+		expect(neutralizeBodyMarkdown("ping <@&123>")).toBe("ping \\<@&123>");
+	});
+
+	it("escapes subtext so a body cannot pass for our metadata line", () => {
+		expect(neutralizeBodyMarkdown("-# by admin")).toBe("\\-# by admin");
+	});
+
+	it("turns escaped text back into plain text for thread names", () => {
+		const raw = "fix_[x](y) <@&1>";
+		expect(plainText(escapeMarkdown(raw))).toBe(raw);
+		expect(plainText("Push to `main`")).toBe("Push to main");
 	});
 
 	it("returns undefined for an empty body", () => {

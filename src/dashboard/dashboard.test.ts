@@ -17,6 +17,7 @@ import {
 	type DashboardSession,
 	decodeSession,
 	encodeSession,
+	fitCookieBudget,
 	readCookie,
 	SESSION_COOKIE,
 } from "./session.js";
@@ -85,6 +86,30 @@ describe("dashboard session", () => {
 		expect(decodeSession("", key)).toBeNull();
 		expect(decodeSession("no-dot", key)).toBeNull();
 		expect(decodeSession("...", key)).toBeNull();
+	});
+
+	it("leaves a normal session untouched by the cookie budget", () => {
+		const original = session();
+		expect(fitCookieBudget(original, key)).toEqual(original);
+	});
+
+	it("fits a user who manages many servers under the browser cookie limit", () => {
+		// 200 servers with long, multi-byte names: far past 4 KB when stored whole.
+		const guilds = Array.from({ length: 200 }, (_, i) => ({
+			id: String(100000000000000000n + BigInt(i)),
+			name: `🚀 ${"Very Long Server Name ".repeat(5)}${i}`,
+		}));
+		const big = session({ guilds, guildIds: guilds.map((g) => g.id) });
+		expect(encodeSession(big, key).length).toBeGreaterThan(4096);
+
+		const fitted = fitCookieBudget(big, key);
+		const encoded = encodeSession(fitted, key);
+
+		expect(encoded.length).toBeLessThanOrEqual(3600);
+		expect(fitted.guilds.length).toBeGreaterThan(0);
+		expect(fitted.guildIds).toEqual(fitted.guilds.map((g) => g.id));
+		// Still a valid session that decodes, with names cut on a code point boundary.
+		expect(decodeSession(encoded, key)?.guilds[0]?.name.startsWith("🚀")).toBe(true);
 	});
 });
 
@@ -291,6 +316,21 @@ describe("dashboard routes", () => {
 		expect((await db.repository.getRepo(GUILD, "acme", "app"))?.paused).toBe(false);
 	});
 
+	it("flags a repository GitHub reports under a different name", async () => {
+		app = await build(DASHBOARD_ENV);
+		const url = `/dashboard/g/${GUILD}/r/acme/app`;
+		const headers = { cookie: cookieFor([GUILD]) };
+
+		const before = await app.inject({ method: "GET", url, headers });
+		expect(before.body).not.toContain("GitHub reports a different repository");
+
+		await db.repository.setObservedFullName("track-1", "acme/app-renamed");
+		const after = await app.inject({ method: "GET", url, headers });
+		expect(after.statusCode).toBe(200);
+		expect(after.body).toContain("GitHub reports a different repository");
+		expect(after.body).toContain("acme/app-renamed");
+	});
+
 	it("never exposes the webhook secret", async () => {
 		app = await build(DASHBOARD_ENV);
 		const res = await app.inject({
@@ -375,15 +415,17 @@ describe("dashboard routes", () => {
 
 	it("does not let the dashboard's form parser reach the webhook endpoint", async () => {
 		app = await build(DASHBOARD_ENV);
-		// The urlencoded parser is registered inside the dashboard's encapsulated
-		// scope, so the webhook route must still refuse a form body.
+		// The dashboard's permissive urlencoded parser lives in its own encapsulated
+		// scope. The webhook has a GitHub-specific one that only accepts a `payload`
+		// field, so an arbitrary form body is refused rather than parsed.
 		const res = await app.inject({
 			method: "POST",
 			url: "/webhooks/github/track-1",
 			headers: { "content-type": "application/x-www-form-urlencoded" },
 			payload: "a=1",
 		});
-		expect(res.statusCode).toBe(415);
+		expect(res.statusCode).toBe(400);
+		expect(res.json()).toMatchObject({ error: "Form body has no payload field" });
 	});
 
 	it("clears the session on sign out", async () => {

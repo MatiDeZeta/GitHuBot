@@ -44,6 +44,18 @@ export function decryptSecret(payload: string, masterKey: Buffer): string {
 	return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 }
 
+/**
+ * `decryptSecret` for values that may predate the current `MASTER_KEY`: returns
+ * null instead of throwing when the payload no longer authenticates.
+ */
+export function tryDecryptSecret(payload: string, masterKey: Buffer): string | null {
+	try {
+		return decryptSecret(payload, masterKey);
+	} catch {
+		return null;
+	}
+}
+
 export function generateTrackingId(): string {
 	return randomBytes(16).toString("hex");
 }

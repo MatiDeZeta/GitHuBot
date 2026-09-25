@@ -5,6 +5,10 @@ export const guilds = sqliteTable("guilds", {
 	locale: text("locale"),
 	defaultTheme: text("default_theme"),
 	defaultDisplayMode: text("default_display_mode"),
+	/** Where delivery-failure alerts are posted; null means alerts are off. */
+	alertChannelId: text("alert_channel_id"),
+	/** When the bot was removed from the server; its data is purged after a grace period. */
+	leftAt: integer("left_at", { mode: "timestamp_ms" }),
 	createdAt: integer("created_at", { mode: "timestamp_ms" })
 		.notNull()
 		.$defaultFn(() => new Date()),
@@ -47,6 +51,8 @@ export const trackedRepos = sqliteTable(
 		lastSuccessAt: integer("last_success_at", { mode: "timestamp_ms" }),
 		lastErrorAt: integer("last_error_at", { mode: "timestamp_ms" }),
 		lastError: text("last_error"),
+		/** Repository name GitHub last reported, when it differs from owner/repo. */
+		observedFullName: text("observed_full_name"),
 		deliveredCount: integer("delivered_count").notNull().default(0),
 		failedCount: integer("failed_count").notNull().default(0),
 

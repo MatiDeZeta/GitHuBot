@@ -17,6 +17,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"common.enabled": "activado",
 	"common.disabled": "desactivado",
 	"common.never": "nunca",
+	"common.andMore": "…y {count} más",
+	"common.avatarOf": "Avatar de {user}",
 	"common.yes": "sí",
 	"common.no": "no",
 	"common.truncated": "_…truncado_",
@@ -218,6 +220,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"link.check": "Check",
 	"link.details": "Detalles",
 	"link.alert": "Alerta",
+	"link.allAlerts": "Todas las alertas",
+	"link.location": "Código",
 	"link.advisory": "Advisory",
 	"link.environment": "Abrir entorno",
 	"link.logs": "Logs",
@@ -354,8 +358,92 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"value.milestoneProgress": "{closed} cerradas · {open} abiertas",
 	"value.branchArrow": "{head} → {base}",
 	"value.oneTime": "único",
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal dollar sign before the {amount} placeholder
 	"value.monthly": "${amount}/mes",
 	"value.testBody": "Si puedes leer esto, GitHuBot puede publicar en este canal.",
+	"value.testBadge": "🧪 **mensaje de prueba** — no es actividad real",
+
+	/* ------------------------------------------------------------- states -- */
+	// GitHub's state, conclusion and severity values. Unknown ones fall back to
+	// readable English via `stateText`, so a new GitHub value never breaks a message.
+	"state.success": "exitoso",
+	"state.failure": "fallido",
+	"state.timed_out": "tiempo agotado",
+	"state.action_required": "requiere acción",
+	"state.startup_failure": "fallo al iniciar",
+	"state.cancelled": "cancelado",
+	"state.skipped": "omitido",
+	"state.neutral": "neutral",
+	"state.stale": "obsoleto",
+	"state.error": "error",
+	"state.pending": "pendiente",
+	"state.in_progress": "en curso",
+	"state.queued": "en cola",
+	"state.waiting": "en espera",
+	"state.inactive": "inactivo",
+	"state.finished": "finalizado",
+	"state.critical": "crítica",
+	"state.high": "alta",
+	"state.medium": "media",
+	"state.moderate": "moderada",
+	"state.low": "baja",
+	"state.warning": "advertencia",
+	"state.note": "nota",
+	"state.false_positive": "falso positivo",
+	"state.wont_fix": "no se corregirá",
+	"state.revoked": "revocado",
+	"state.used_in_tests": "usado en tests",
+	"state.pattern_deleted": "patrón eliminado",
+	"state.pattern_edited": "patrón editado",
+	"state.published": "publicado",
+	"state.closed": "cerrado",
+	"state.withdrawn": "retirado",
+	"state.draft": "borrador",
+	"state.triage": "en revisión",
+	"state.branch": "rama",
+	"state.tag": "tag",
+	"state.push": "push",
+	"state.repository": "repositorio",
+	"state.active": "activo",
+	"state.disabled": "desactivado",
+	"state.evaluate": "evaluación",
+	"state.created": "creado",
+	"state.edited": "editado",
+	"state.deleted": "eliminado",
+	"state.archived": "archivado",
+	"state.restored": "restaurado",
+	"state.converted": "convertido",
+	"state.reordered": "reordenado",
+	"state.enabled": "activado",
+	"state.fix_started": "corrección iniciada",
+	"state.inaccurate": "inexacto",
+	"state.no_bandwidth": "sin capacidad",
+	"state.not_used": "no se usa",
+	"state.tolerable_risk": "riesgo tolerable",
+	"state.unknown": "desconocido",
+	"state.runtime": "ejecución",
+	"state.development": "desarrollo",
+	"value.fixUpgrade": "actualizar a {version}",
+	"value.noFix": "aún no hay versión corregida",
+	"value.secretStillValid": "🔴 **sigue siendo válido** — revócalo ya",
+	"value.publiclyLeaked": "también aparece en fuentes públicas",
+	"value.multiRepo": "también está en otros repositorios",
+	"value.pushProtectionBypassed": "{user} omitió la protección de push",
+	"field.affected": "Afectadas",
+	"field.fix": "Solución",
+	"field.tool": "Herramienta",
+	"field.location": "Ubicación",
+	"field.validity": "Validez",
+	"field.dismissedReason": "Motivo",
+	"field.ids": "IDs",
+	"alert.failing.title": "Las entregas están fallando",
+	"alert.failing.body":
+		"GitHub está enviando eventos de este repositorio, pero GitHuBot no puede publicarlos. Corrige los permisos del canal (o muévelo con `/repo channel`) y luego usa **Redeliver** en la página del webhook de GitHub para lo que se haya perdido.",
+	"alert.recovered.title": "Las entregas se recuperaron",
+	"alert.recovered.body": "Los mensajes se publican otra vez.",
+	"field.channel": "Canal",
+	"field.error": "Error",
+	"link.webhookDeliveries": "Entregas recientes",
 
 	/* --------------------------------------------------- command: /repo -- */
 	"cmd.repo.description": "Administra los repositorios de GitHub rastreados en este servidor",
@@ -385,6 +473,11 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"cmd.repo.style.description": "Cambiar el tema y la densidad de visualización",
 	"cmd.repo.style.option.theme": "Paleta de acentos",
 	"cmd.repo.style.option.mode": "Densidad de visualización",
+	"cmd.repo.serverStyle.description":
+		"Define el tema y la densidad predeterminados para todos los repositorios del servidor",
+	"cmd.repo.alerts.description":
+		"Recibe una alerta cuando las entregas de un repositorio empiecen a fallar",
+	"cmd.repo.alerts.option.channel": "Dónde publicar las alertas (vacío para desactivarlas)",
 	"cmd.repo.health.description": "Mostrar la salud de entregas de un repositorio",
 	"cmd.repo.language.description": "Definir el idioma de los mensajes de este servidor",
 	"cmd.repo.language.option.locale": "Idioma",
@@ -407,7 +500,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.add.intro": "GitHuBot nunca necesita un token de GitHub. Crea el webhook tú mismo:",
 	"repo.add.step1": "1. Abre {url}",
 	"repo.add.step2": "2. **Payload URL**: `{url}`",
-	"repo.add.step3": "3. **Content type**: `application/json`",
+	"repo.add.step3":
+		"3. **Content type**: `application/json` (recomendado; el form-encoded por defecto también funciona)",
 	"repo.add.step4": "4. **Secret**: `{secret}`",
 	"repo.add.step5":
 		"5. Elige **Send me everything** (el bot filtra en el servidor, así que es seguro)",
@@ -429,6 +523,7 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.list.entry": "**{repo}** → <#{channel}>",
 	"repo.list.events": "Eventos: {count} activos",
 	"repo.list.paused": "Pausado",
+	"repo.list.observed": "⚠️ GitHub informa `{reported}`",
 	"repo.list.routes": "Rutas: {count}",
 	"repo.list.lastDelivery": "Última entrega: {when}",
 
@@ -453,13 +548,23 @@ export const es: { [K in keyof typeof en]?: string } = {
 
 	/* -------------------------------------------------- /repo: channel -- */
 	"repo.channel.done": "`{repo}` ahora publicará en <#{channel}>.",
+	"repo.permissions.missing":
+		"⚠️ GitHuBot todavía no puede publicar en <#{channel}>: le falta **{permissions}** ahí. Concédelo en los permisos del canal y luego ejecuta `/repo test {repo}`.",
+	"repo.permissions.missingPlain":
+		"⚠️ GitHuBot todavía no puede publicar en <#{channel}>: le falta **{permissions}** ahí. Concédelo en los permisos del canal.",
+	"perm.ViewChannel": "Ver canal",
+	"perm.SendMessages": "Enviar mensajes",
+	"perm.SendMessagesInThreads": "Enviar mensajes en hilos",
 
 	/* --------------------------------------------------- /repo: secret -- */
 	"repo.webhookInfo.heading": "## Info del webhook · `{repo}`",
 	"repo.webhookInfo.payloadUrl": "**Payload URL**: `{url}`",
 	"repo.webhookInfo.secret": "**Secret**: `{secret}`",
-	"repo.webhookInfo.contentType": "**Content type**: `application/json`",
+	"repo.webhookInfo.contentType":
+		"**Content type**: `application/json` (recomendado; el form-encoded por defecto también funciona)",
 	"repo.webhookInfo.configureAt": "Configurar en: {url}",
+	"repo.webhookInfo.undecryptable":
+		"El secret guardado para `{repo}` ya no se puede descifrar — probablemente `MASTER_KEY` cambió desde que se creó. Ejecuta `/repo regenerate-secret {repo}` y pega el nuevo secret en el webhook de GitHub.",
 	"repo.regenerate.heading": "## Nuevo secret para `{repo}`",
 	"repo.regenerate.instruction": "Actualiza el campo **Secret** en tu webhook de GitHub:",
 	"repo.regenerate.newSecret": "**Nuevo secret**: `{secret}`",
@@ -512,13 +617,30 @@ export const es: { [K in keyof typeof en]?: string } = {
 
 	/* ---------------------------------------------------- /repo: style -- */
 	"repo.style.saved": "`{repo}` ahora usa el tema **{theme}** en modo **{mode}**.",
-	"repo.style.themeDefault": "Predeterminado",
+	"repo.style.themeDefault": "Clásico",
 	"repo.style.themeGithub": "GitHub",
 	"repo.style.themeNeon": "Neón",
+	"repo.style.themeCatppuccin": "Catppuccin",
+	"repo.style.themeNord": "Nord",
+	"repo.style.themeAccessible": "Accesible (apto para daltonismo)",
 	"repo.style.themeMono": "Monocromo",
 	"repo.style.themeLanguage": "Por lenguaje",
 	"repo.style.modeDetailed": "Detallado",
 	"repo.style.modeCompact": "Compacto",
+	"repo.style.inherit": "Predeterminado del servidor",
+	"repo.style.inherited": "{value} (predeterminado del servidor)",
+	"repo.style.current": "`{repo}` usa el tema **{theme}** en modo **{mode}**.",
+	"repo.serverStyle.saved":
+		"Este servidor ahora usa por defecto el tema **{theme}** en modo **{mode}**.",
+	"repo.serverStyle.current":
+		"Este servidor usa por defecto el tema **{theme}** en modo **{mode}**.",
+	"repo.serverStyle.note":
+		"-# Los repositorios con su propio `/repo style` lo conservan; elige **Predeterminado del servidor** ahí para seguir este.",
+	"repo.serverStyle.reset": "Predeterminado del bot",
+	"repo.serverStyle.botDefault": "{value} (predeterminado del bot)",
+	"repo.alerts.set":
+		"Las alertas de entrega de este servidor van a <#{channel}>: una cuando un repositorio empiece a fallar y otra cuando se recupere.",
+	"repo.alerts.cleared": "Las alertas de entrega están desactivadas en este servidor.",
 
 	/* --------------------------------------------------- /repo: health -- */
 	"repo.health.heading": "## Salud de entregas · `{repo}`",
@@ -532,6 +654,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.health.active": "**Estado**: activo",
 	"repo.health.hint":
 		"Si no llega nada, revisa **Recent Deliveries** en la página del webhook de GitHub.",
+	"repo.health.observed":
+		"⚠️ GitHub informa que estas entregas vienen de `{reported}`, no de `{repo}`. Si el repositorio fue renombrado o transferido, los mensajes se siguen publicando con normalidad — solo el nombre que muestra GitHuBot está desactualizado. Si el webhook se agregó al repositorio equivocado, elimínalo allí.",
 
 	/* ------------------------------------------------- /repo: language -- */
 	"repo.language.saved": "Idioma del servidor establecido en **{language}**.",

@@ -1,5 +1,5 @@
 import type { Actor, Repository } from "../../../github/payloads.js";
-import { type I18nText, tx } from "../../../i18n/index.js";
+import { type I18nText, isTranslationKey, tx } from "../../../i18n/index.js";
 import { escapeMarkdown, neutralizeBodyMarkdown, truncate } from "../blocks.js";
 import type { EventTemplate, TemplateLink } from "../template.js";
 
@@ -87,8 +87,17 @@ export function humanizeDuration(ms: number): string {
 	return restMinutes ? `${hours}h ${restMinutes}m` : `${hours}h`;
 }
 
-/** Turns `success`, `timed_out` etc. into `Success`, `Timed out`. */
-export function humanizeState(value: string): string {
-	const spaced = value.replace(/[_-]+/g, " ").trim();
-	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+/**
+ * A GitHub state, conclusion or severity (`timed_out`, `critical`, …) as translated,
+ * lowercase text. A value GitHub adds later still reads fine: it falls back to the
+ * value with underscores spaced out, in English.
+ */
+export function stateText(value: string): I18nText {
+	const key = `state.${value.toLowerCase()}`;
+	return isTranslationKey(key) ? tx(key) : value.replace(/[_-]+/g, " ").trim().toLowerCase();
+}
+
+/** `code()` for text that may still need translating. */
+export function codeText(value: I18nText): I18nText {
+	return typeof value === "string" ? code(value) : tx("fmt.code", { value });
 }
