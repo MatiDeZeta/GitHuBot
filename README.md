@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.2.1-8b5cf6?style=flat-square" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.3.0-8b5cf6?style=flat-square" alt="Version"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-24_LTS-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node"></a>
   <a href="https://discord.js.org/"><img src="https://img.shields.io/badge/discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white" alt="discord.js"></a>
   <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-11-F69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm"></a>
@@ -54,6 +54,7 @@ GitHub’s built-in Discord integration dumps generic embeds. GitHuBot turns the
 8. **SQLite by default** — Railway/Docker volume; Postgres via `DATABASE_URL`
 9. **Secret rotation** — `/repo regenerate-secret` with graceful cutover
 10. **Metrics-driven presence** and a `/stats` command
+11. **Setup guard rails** — JSON or GitHub's form-encoded default, missing channel permissions flagged on `/repo add`, renamed or misplaced repositories detected
 
 ### Architecture
 
@@ -364,6 +365,8 @@ The image entrypoint `chown`s `/app/data` on boot so the non-root process can cr
 ## Upgrading
 
 Deploy and restart. Migrations run automatically on boot, each one in a transaction, and every column added so far is nullable or defaulted — existing tracked repositories keep their channel, event selection and secrets. No release to date has required a new environment variable.
+
+**1.3.0** requires Node.js 24 when running outside Docker (`pnpm start` / `pnpm dev`); the Docker image already includes it.
 
 Version-specific notes are in [`CHANGELOG.md`](CHANGELOG.md).
 

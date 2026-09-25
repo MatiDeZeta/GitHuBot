@@ -26,6 +26,13 @@ GitHuBot stores encrypted webhook secrets and Discord credentials. Please **do n
   uptime, not secrets or repository names.
 - **Rate limiting depends on `TRUST_PROXY`.** In a proxied deployment without it, the
   per-IP limit degrades to a single shared bucket.
+- **Replay protection is the delivery ledger, and it is bounded.** GitHub signs the body
+  but no timestamp, so a replayed delivery is recognised only by its `X-GitHub-Delivery`
+  id. Ids are kept for 30 days — ten times GitHub's own 3-day redelivery window — then
+  pruned so the table cannot grow forever. A genuine delivery captured and replayed after
+  that would post its (authentic, unaltered) message once more; it cannot be modified
+  without the secret. A delivery that never reached Discord is released at once so
+  GitHub's **Redeliver** can retry it.
 
 ## Dashboard
 

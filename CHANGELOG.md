@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-09-25
+
+Migrations `0004` and `0005` run automatically; each adds nullable columns only.
+**Running outside Docker now needs Node.js 24**; the Docker image already ships it.
+No new environment variables are required.
+
+### Added
+
+- **Richer security alerts.** Four severity levels, each with its own colour in
+  every theme and its own icon, and a badge line under the header —
+  `🟠 high · CVSS 7.4 · EPSS 1.2%` — that stays visible in compact mode.
+  Dependabot alerts show the affected range and the fix ("upgrade to 4.17.21",
+  or "no patched version yet"); code scanning alerts link to the exact line and
+  quote the finding; secret scanning alerts say whether the secret still works
+  and whether it also leaked publicly. GHSA and CVE ids link to GitHub's advisory
+  database and NVD. A secret's value is never read.
+- **GitHub's own icons.** The Octicons ship as coloured icons; `pnpm emojis:sync`
+  (or `EMOJI_SYNC=true` at startup) uploads them as the bot's application emojis
+  and the bot uses them in place of Unicode. `EMOJI_OVERRIDES` still wins.
+- **Three new themes:** Catppuccin, Nord, and Accessible (the Okabe–Ito palette,
+  distinguishable with the common forms of colour blindness). The language theme
+  now knows all 692 of GitHub's language colours.
+- **`/repo server-style`** sets the default theme and density for every
+  repository in a server. The setting existed in the database but nothing could
+  set it.
+- **Realistic previews.** `/repo test` renders a lifelike message for 17 common
+  events through the real formatter, tagged as a test; `/repo style` and
+  `/repo server-style` reply with a preview of a merge and a failed run.
+- **Failure alerts.** `/repo alerts channel:#…` posts once when a repository's
+  deliveries start failing and once when they recover, instead of the breakage
+  being visible only to someone who runs `/repo health`.
+- **GitHub's default content type works.** GitHub creates webhooks as
+  `application/x-www-form-urlencoded` unless it is changed by hand, and that was
+  refused with a 415, so nothing ever posted. Form-encoded deliveries are now
+  accepted and verified against the body exactly as GitHub signed it.
+  `application/json` is still the recommendation.
+- **Channel permission check.** `/repo add`, `/repo channel`, `/repo route` and
+  `/repo alerts` check the bot's effective permissions in the chosen channel and
+  say what is missing, instead of it surfacing later as a failed delivery.
+  Advisory only — the setting is saved either way.
+- **Renamed-repository detection.** When a verified delivery names a different
+  repository than the one tracked — renamed, transferred, or the webhook was
+  added to the wrong repository — `/repo health`, `/repo list` and the dashboard
+  say so. It clears itself once deliveries match again.
+
+### Privacy
+
+- **Data is deleted when the bot leaves a server:** settings, tracked
+  repositories and delivery records go 7 days after removal. Re-inviting it
+  within 7 days cancels this, and Discord outages never count as a removal.
+- **`/repo remove`** now deletes the repository's delivery records immediately.
+- **`PRIVACY.md`** documents what is stored, what is not, where data goes and
+  how it is deleted.
+
+### Fixed
+
+- `pnpm dev`, `pnpm start` and `pnpm db:migrate` now read `.env`. They never
+  did, so following the README's setup steps started the bot in degraded mode
+  unless every variable was exported by hand.
+
+### Changed
+
+- **Node.js 24 LTS.** The Docker image (`node:24-alpine`, pinned by digest), CI,
+  `engines` and `@types/node` move from Node 22, which leaves maintenance in
+  April 2027. A new `.nvmrc` pins the same major for local development.
+- **`@fastify/rate-limit` 11** masks IPv6 clients to their /64 by default, so
+  one host cannot rotate addresses inside its allocation to dodge the limit.
+- **`vitest` 5** and **`@types/better-sqlite3` 9** (development only).
+- **New dev dependencies**, each pinned and free of install scripts:
+  `linguist-languages` (language colours), `@primer/octicons` and
+  `@resvg/resvg-wasm` (icon artwork). Their output is committed; production
+  loads none of them.
+
+### Database
+
+- `0004_observed_repo` adds `tracked_repos.observed_full_name`.
+- `0005_guild_lifecycle` adds `guilds.alert_channel_id` and `guilds.left_at`.
+
 ## [1.2.1] — 2026-09-25
 
 A maintenance release: no new environment variables are required and no
@@ -73,6 +151,8 @@ migration runs. Deploy and restart.
 - **The delivery ledger is bounded.** The `deliveries` table grew by one row per
   webhook, forever. Rows older than 30 days are pruned at boot and every six hours;
   dedupe only needs GitHub's 3-day redelivery window and the dashboard reads 7.
+  The trade-off — an authentic delivery replayed after 30 days would post again,
+  since GitHub signs no timestamp — is spelled out in `SECURITY.md`.
 - **The Docker image builds on current Node images.** Node 25+ images no longer
   ship `corepack`, which the build relied on; pnpm is now installed from npm at the
   version pinned in `package.json`.
@@ -334,7 +414,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.3.0
 [1.2.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.2.1
 [1.2.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.2.0
 [1.1.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.1.0
