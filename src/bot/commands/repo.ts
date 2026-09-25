@@ -33,6 +33,7 @@ import {
 } from "./repo-config.js";
 import { categoryView } from "./repo-events.js";
 import {
+	channelAccessWarning,
 	ephemeralText,
 	ephemeralTextEdit,
 	ephemeralV2,
@@ -305,7 +306,10 @@ async function handleAdd(interaction: GuildChatInput, ctx: BotContext, locale: A
 		flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
 	});
 
-	const warning = await maybeWarnPrivateRepo(owner, repo, locale);
+	const [warning, access] = await Promise.all([
+		maybeWarnPrivateRepo(owner, repo, locale),
+		channelAccessWarning(interaction, channel.id, locale, slug),
+	]);
 	const trackingId = generateTrackingId();
 	const secret = generateWebhookSecret();
 	const encryptedSecret = encryptSecret(secret, ctx.masterKey);
@@ -331,6 +335,7 @@ async function handleAdd(interaction: GuildChatInput, ctx: BotContext, locale: A
 		t(locale, "repo.add.heading", { repo: slug }),
 		"",
 		...(warning ? [warning, ""] : []),
+		...(access ? [access, ""] : []),
 		t(locale, "repo.add.intro"),
 		"",
 		t(locale, "repo.add.step1", { url: `https://github.com/${slug}/settings/hooks/new` }),
@@ -441,9 +446,9 @@ async function handleChannel(interaction: GuildChatInput, ctx: BotContext, local
 		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;
 	}
-	await interaction.reply(
-		ephemeralText(t(locale, "repo.channel.done", { repo: slug, channel: channel.id })),
-	);
+	const access = await channelAccessWarning(interaction, channel.id, locale, slugOf(updated));
+	const done = t(locale, "repo.channel.done", { repo: slug, channel: channel.id });
+	await interaction.reply(ephemeralText(access ? `${done}\n\n${access}` : done));
 }
 
 async function handleWebhookInfo(

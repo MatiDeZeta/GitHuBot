@@ -534,6 +534,11 @@ export const en = {
 
 	/* -------------------------------------------------- /repo: channel -- */
 	"repo.channel.done": "`{repo}` will now post to <#{channel}>.",
+	"repo.permissions.missing":
+		"⚠️ GitHuBot cannot post in <#{channel}> yet — it is missing **{permissions}** there. Grant it in the channel's permissions, then run `/repo test {repo}`.",
+	"perm.ViewChannel": "View Channel",
+	"perm.SendMessages": "Send Messages",
+	"perm.SendMessagesInThreads": "Send Messages in Threads",
 
 	/* --------------------------------------------------- /repo: secret -- */
 	"repo.webhookInfo.heading": "## Webhook info · `{repo}`",

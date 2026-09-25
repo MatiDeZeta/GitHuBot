@@ -1,6 +1,7 @@
 import {
 	type APIMessageTopLevelComponent,
 	type AutocompleteInteraction,
+	type Client,
 	type InteractionEditReplyOptions,
 	type InteractionReplyOptions,
 	type InteractionUpdateOptions,
@@ -11,6 +12,7 @@ import {
 } from "discord.js";
 import { repoSlugSchema } from "../../config/events.js";
 import type { GuildSettings, TrackedRepo } from "../../db/types.js";
+import { missingChannelAccess } from "../../delivery/permissions.js";
 import { type AppLocale, resolveLocale, type TranslationKey, t } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
 
@@ -157,6 +159,36 @@ export async function respondRepoAutocomplete(
 		.slice(0, 25)
 		.map((slug) => ({ name: slug, value: slug }));
 	await interaction.respond(choices);
+}
+
+const ACCESS_CHECK_TIMEOUT_MS = 1_500;
+
+/**
+ * A warning line when the bot lacks what it needs to post in `channelId`, or
+ * null when it can post. Advisory only: the setting is saved either way, since
+ * an admin may fix the permissions right after.
+ */
+export async function channelAccessWarning(
+	interaction: { client: Client },
+	channelId: string,
+	locale: AppLocale,
+	repo: string,
+): Promise<string | null> {
+	// Cached channels answer instantly, but an archived thread costs a REST call and
+	// some callers have not deferred; an unanswered check must never cost the reply.
+	let timer: NodeJS.Timeout | undefined;
+	const missing = await Promise.race([
+		missingChannelAccess(interaction.client, channelId),
+		new Promise<[]>((resolve) => {
+			timer = setTimeout(() => resolve([]), ACCESS_CHECK_TIMEOUT_MS);
+		}),
+	]).finally(() => clearTimeout(timer));
+	if (missing.length === 0) return null;
+	return t(locale, "repo.permissions.missing", {
+		channel: channelId,
+		permissions: missing.map((name) => t(locale, `perm.${name}`)).join(", "),
+		repo,
+	});
 }
 
 export function relative(date: Date | null): string | null {

@@ -510,6 +510,11 @@ export const es: { [K in keyof typeof en]?: string } = {
 
 	/* -------------------------------------------------- /repo: channel -- */
 	"repo.channel.done": "`{repo}` ahora publicará en <#{channel}>.",
+	"repo.permissions.missing":
+		"⚠️ GitHuBot todavía no puede publicar en <#{channel}>: le falta **{permissions}** ahí. Concédelo en los permisos del canal y luego ejecuta `/repo test {repo}`.",
+	"perm.ViewChannel": "Ver canal",
+	"perm.SendMessages": "Enviar mensajes",
+	"perm.SendMessagesInThreads": "Enviar mensajes en hilos",
 
 	/* --------------------------------------------------- /repo: secret -- */
 	"repo.webhookInfo.heading": "## Info del webhook · `{repo}`",

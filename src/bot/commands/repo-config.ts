@@ -32,6 +32,7 @@ import { sampleTemplate } from "../render/samples.js";
 import { DISPLAY_MODES, type DisplayMode, isDisplayMode } from "../render/template.js";
 import { isThemeId, THEME_IDS, type ThemeId } from "../render/theme.js";
 import {
+	channelAccessWarning,
 	ephemeralText,
 	ephemeralTextEdit,
 	guildContext,
@@ -153,20 +154,25 @@ export async function handleRoute(
 	}
 
 	await ctx.repository.updateRoutes(tracked.guildId, tracked.owner, tracked.repo, routes);
-	await interaction.reply(
-		ephemeralText(
-			channel
-				? t(locale, "repo.route.set", {
-						category: categoryLabel(locale, category),
-						repo: slugOf(tracked),
-						channel: channel.id,
-					})
-				: t(locale, "repo.route.cleared", {
-						category: categoryLabel(locale, category),
-						repo: slugOf(tracked),
-					}),
-		),
-	);
+	if (!channel) {
+		await interaction.reply(
+			ephemeralText(
+				t(locale, "repo.route.cleared", {
+					category: categoryLabel(locale, category),
+					repo: slugOf(tracked),
+				}),
+			),
+		);
+		return;
+	}
+
+	const done = t(locale, "repo.route.set", {
+		category: categoryLabel(locale, category),
+		repo: slugOf(tracked),
+		channel: channel.id,
+	});
+	const access = await channelAccessWarning(interaction, channel.id, locale, slugOf(tracked));
+	await interaction.reply(ephemeralText(access ? `${done}\n\n${access}` : done));
 }
 
 export async function handleMentions(
