@@ -4,9 +4,11 @@
 # rebuild cannot silently pick up a different image. Dependabot's docker
 # ecosystem keeps the digest current.
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS base
+# pnpm comes from npm rather than corepack: Node 25+ images no longer ship
+# corepack at all. The version matches `packageManager` in package.json, and
+# --ignore-scripts keeps the global install from running any lifecycle hook.
 RUN apk add --no-cache libc6-compat python3 make g++ \
-	&& corepack enable \
-	&& corepack prepare pnpm@11.15.1 --activate
+	&& npm install --global --ignore-scripts pnpm@11.15.1
 WORKDIR /app
 
 FROM base AS deps
