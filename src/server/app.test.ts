@@ -45,6 +45,7 @@ describe("webhook endpoint", () => {
 	let db: DbHandle;
 	let app: FastifyInstance;
 	let env: Env;
+	let masterKey: Buffer;
 
 	beforeEach(async () => {
 		dir = mkdtempSync(join(tmpdir(), "githubot-http-"));
@@ -52,7 +53,7 @@ describe("webhook endpoint", () => {
 		await migrate(url);
 		db = createDb(url);
 
-		const masterKey = parseMasterKey(randomBytes(32).toString("hex"));
+		masterKey = parseMasterKey(randomBytes(32).toString("hex"));
 		await db.repository.ensureGuild("guild-1");
 		await db.repository.addRepo({
 			guildId: "guild-1",
@@ -73,7 +74,8 @@ describe("webhook endpoint", () => {
 			logger: createLogger(env),
 			repository: db.repository,
 			masterKey,
-			discord: {} as Client,
+			// Every channel lookup misses, so an unpaused delivery ends as `bad_channel`.
+			discord: { channels: { fetch: async () => null } } as unknown as Client,
 			ready: true,
 			renderDefaults: { locale: "en", theme: "default", mode: "detailed" },
 		});
@@ -184,6 +186,47 @@ describe("webhook endpoint", () => {
 		expect(results.every((res) => res.statusCode === 200)).toBe(true);
 		expect(results.filter((res) => res.json().duplicate === true)).toHaveLength(2);
 	});
+	it("still verifies the current secret when the previous one predates a MASTER_KEY change", async () => {
+		// `/repo regenerate-secret` after a key change used to leave a previous secret
+		// that no longer decrypts; that aborted every delivery with a 500.
+		const staleKey = parseMasterKey(randomBytes(32).toString("hex"));
+		await db.repository.rotateSecret({
+			guildId: "guild-1",
+			owner: "acme",
+			repo: "app",
+			encryptedSecret: encryptSecret("rotated-secret", masterKey),
+			encryptedPreviousSecret: encryptSecret(SECRET, staleKey),
+		});
+
+		const body = pushBody();
+		const res = await post(body, {
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(body, "rotated-secret"),
+		});
+		expect(res.statusCode).toBe(200);
+		expect((await db.repository.getRepo("guild-1", "acme", "app"))?.encryptedPreviousSecret).toBe(
+			null,
+		);
+	});
+
+	it("lets GitHub redeliver a delivery that never reached Discord", async () => {
+		await db.repository.setPaused("guild-1", "acme", "app", false);
+		const body = pushBody();
+		const headers = {
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(body),
+		};
+
+		const first = await post(body, headers);
+		expect(first.json()).toMatchObject({ delivered: false, reason: "bad_channel" });
+
+		// Redeliver reuses the X-GitHub-Delivery id; it must be attempted again.
+		const redelivery = await post(body, headers);
+		expect(redelivery.json()).not.toMatchObject({ duplicate: true });
+		expect(redelivery.json()).toMatchObject({ reason: "bad_channel" });
+	});
 });
 
 describe("metrics endpoint", () => {
@@ -234,6 +277,27 @@ describe("metrics endpoint", () => {
 		// /health must stay reachable for platform health checks.
 		const health = await app.inject({ method: "GET", url: "/health" });
 		expect(health.statusCode).toBe(200);
+		await app.close();
+	});
+
+	it("rate-limits webhook deliveries before reading the body", async () => {
+		const app = await serverWith({ WEBHOOK_RATE_LIMIT: "2" });
+		const deliver = () =>
+			app.inject({
+				method: "POST",
+				url: "/webhooks/github/anything",
+				headers: {
+					"content-type": "application/json",
+					"x-github-event": "push",
+					"x-github-delivery": randomUUID(),
+				},
+				// Unparseable on purpose: a 429 here proves the limit ran first.
+				payload: "{not json",
+			});
+
+		expect((await deliver()).statusCode).toBe(400);
+		expect((await deliver()).statusCode).toBe(400);
+		expect((await deliver()).statusCode).toBe(429);
 		await app.close();
 	});
 

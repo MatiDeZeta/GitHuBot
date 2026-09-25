@@ -460,6 +460,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.webhookInfo.secret": "**Secret**: `{secret}`",
 	"repo.webhookInfo.contentType": "**Content type**: `application/json`",
 	"repo.webhookInfo.configureAt": "Configurar en: {url}",
+	"repo.webhookInfo.undecryptable":
+		"El secret guardado para `{repo}` ya no se puede descifrar — probablemente `MASTER_KEY` cambió desde que se creó. Ejecuta `/repo regenerate-secret {repo}` y pega el nuevo secret en el webhook de GitHub.",
 	"repo.regenerate.heading": "## Nuevo secret para `{repo}`",
 	"repo.regenerate.instruction": "Actualiza el campo **Secret** en tu webhook de GitHub:",
 	"repo.regenerate.newSecret": "**Nuevo secret**: `{secret}`",

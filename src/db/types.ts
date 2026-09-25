@@ -77,8 +77,11 @@ export interface RotateSecretInput {
 	repo: string;
 	/** New current secret (encrypted). */
 	encryptedSecret: string;
-	/** Previous current secret retained for verifyWithFallback. */
-	encryptedPreviousSecret: string;
+	/**
+	 * Previous current secret retained for verifyWithFallback, or null when it is
+	 * not worth keeping (it was stored under a `MASTER_KEY` that has since changed).
+	 */
+	encryptedPreviousSecret: string | null;
 }
 
 export interface RepoStyleInput {
@@ -159,6 +162,12 @@ export interface RepoRepository {
 	clearPreviousSecret(trackingId: string): Promise<void>;
 	/** Returns true if this delivery is new and was recorded; false if duplicate. */
 	tryRecordDelivery(deliveryId: string, trackingId: string): Promise<boolean>;
+	/**
+	 * Forgets a recorded delivery that never reached Discord, so GitHub's
+	 * "Redeliver" (which reuses the same X-GitHub-Delivery id) is processed again
+	 * instead of being dropped as a duplicate.
+	 */
+	releaseDelivery(deliveryId: string): Promise<void>;
 	/** Updates the health counters shown by `/repo health` and `/repo list`. */
 	recordDeliveryResult(result: DeliveryResult): Promise<void>;
 	/**

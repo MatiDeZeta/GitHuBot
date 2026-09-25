@@ -9,10 +9,10 @@ import {
 } from "discord.js";
 import { DEFAULT_ENABLED_EVENTS, repoSlugSchema } from "../../config/events.js";
 import {
-	decryptSecret,
 	encryptSecret,
 	generateTrackingId,
 	generateWebhookSecret,
+	tryDecryptSecret,
 } from "../../crypto/secrets.js";
 import { type AppLocale, localizations, type TranslationKey, t } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
@@ -467,9 +467,15 @@ async function handleWebhookInfo(
 	const tracked = await requireTrackedRepo(ctx, interaction, locale);
 	if (!tracked) return;
 
-	const secret = decryptSecret(tracked.encryptedSecret, ctx.masterKey);
-	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);
 	const slug = slugOf(tracked);
+	const secret = tryDecryptSecret(tracked.encryptedSecret, ctx.masterKey);
+	if (secret === null) {
+		await interaction.reply(
+			ephemeralText(t(locale, "repo.webhookInfo.undecryptable", { repo: slug })),
+		);
+		return;
+	}
+	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);
 
 	await interaction.reply(
 		ephemeralText(
@@ -503,7 +509,12 @@ async function handleRegenerateSecret(
 		owner: tracked.owner,
 		repo: tracked.repo,
 		encryptedSecret,
-		encryptedPreviousSecret: tracked.encryptedSecret,
+		// A secret stored under an earlier MASTER_KEY cannot bridge anything, so
+		// only keep the old one as a fallback while it still decrypts.
+		encryptedPreviousSecret:
+			tryDecryptSecret(tracked.encryptedSecret, ctx.masterKey) === null
+				? null
+				: tracked.encryptedSecret,
 	});
 
 	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);

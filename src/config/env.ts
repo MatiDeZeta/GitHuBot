@@ -131,6 +131,12 @@ const envSchema = z.object({
 		.positive()
 		.max(GITHUB_MAX_PAYLOAD_BYTES)
 		.default(GITHUB_MAX_PAYLOAD_BYTES),
+	/**
+	 * Deliveries accepted per minute from one IP. GitHub sends every repository's
+	 * webhooks from a small shared pool and does not retry a 429, so a limit tuned
+	 * for browsers silently drops CI-heavy bursts (workflow_job, check_run).
+	 */
+	WEBHOOK_RATE_LIMIT: z.coerce.number().int().positive().max(100_000).default(600),
 	/** When set, `/metrics` requires `Authorization: Bearer <token>`. `/health` stays public. */
 	METRICS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(16).optional()),
 	LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),

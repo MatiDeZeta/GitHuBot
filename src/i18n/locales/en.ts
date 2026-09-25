@@ -483,6 +483,8 @@ export const en = {
 	"repo.webhookInfo.secret": "**Secret**: `{secret}`",
 	"repo.webhookInfo.contentType": "**Content type**: `application/json`",
 	"repo.webhookInfo.configureAt": "Configure at: {url}",
+	"repo.webhookInfo.undecryptable":
+		"The stored secret for `{repo}` can no longer be decrypted — `MASTER_KEY` has probably changed since it was created. Run `/repo regenerate-secret {repo}` and paste the new secret into the GitHub webhook.",
 	"repo.regenerate.heading": "## New secret for `{repo}`",
 	"repo.regenerate.instruction": "Update the **Secret** field on your GitHub webhook:",
 	"repo.regenerate.newSecret": "**New secret**: `{secret}`",

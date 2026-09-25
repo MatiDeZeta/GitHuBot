@@ -204,6 +204,10 @@ export function createPgRepository(db: PgDb): RepoRepository {
 			return rows.length > 0;
 		},
 
+		async releaseDelivery(deliveryId) {
+			await db.delete(schema.deliveries).where(eq(schema.deliveries.deliveryId, deliveryId));
+		},
+
 		async activityByDay(trackingIds, days) {
 			const buckets = new Map<string, number[]>();
 			if (trackingIds.length === 0 || days <= 0) return buckets;

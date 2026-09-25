@@ -12,11 +12,11 @@ import {
 } from "../config/env.js";
 import { githubEventToType } from "../config/events.js";
 import type { Logger } from "../config/logger.js";
-import { decryptSecret } from "../crypto/secrets.js";
+import { tryDecryptSecret } from "../crypto/secrets.js";
 import { registerDashboard } from "../dashboard/routes.js";
 import { notConfiguredPage } from "../dashboard/views.js";
 import type { RepoRepository } from "../db/types.js";
-import { type DispatchContext, dispatchEvent } from "../delivery/dispatch.js";
+import { type DispatchContext, type DispatchOutcome, dispatchEvent } from "../delivery/dispatch.js";
 import { verifyGitHubSignature } from "../github/verify.js";
 import { metrics } from "../metrics.js";
 
@@ -60,15 +60,22 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		try {
 			const json = raw.length > 0 ? JSON.parse(raw) : {};
 			done(null, json);
-		} catch (err) {
-			done(err as Error, undefined);
+		} catch {
+			// A bare SyntaxError carries no status, so it surfaced as a 500 and an
+			// error-level log that any unauthenticated caller could trigger at will.
+			const error = new Error("Request body is not valid JSON") as FastifyError;
+			error.statusCode = 400;
+			done(error, undefined);
 		}
 	});
 
+	// `onRequest` counts a request before its body is read. At `preHandler` a
+	// flood was only refused after buffering up to WEBHOOK_BODY_LIMIT per request.
+	// Route-level limits inherit this hook.
 	await app.register(rateLimit, {
 		max: 100,
 		timeWindow: "1 minute",
-		hook: "preHandler",
+		hook: "onRequest",
 	});
 
 	app.get("/health", async () => ({
@@ -126,7 +133,9 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		{
 			config: {
 				rateLimit: {
-					max: 60,
+					// GitHub delivers from a small pool of addresses and never retries a
+					// 429, so this must clear a busy repository's CI bursts.
+					max: ctx.env.WEBHOOK_RATE_LIMIT,
 					timeWindow: "1 minute",
 				},
 			},
@@ -169,16 +178,23 @@ async function handleWebhook(
 		return reply.code(404).send({ error: "Unknown webhook" });
 	}
 
-	let secret: string;
-	const previousSecrets: string[] = [];
-	try {
-		secret = decryptSecret(tracked.encryptedSecret, masterKey);
-		if (tracked.encryptedPreviousSecret) {
-			previousSecrets.push(decryptSecret(tracked.encryptedPreviousSecret, masterKey));
-		}
-	} catch (err) {
-		ctx.logger.error({ err, trackingId }, "Failed to decrypt webhook secret");
+	const secret = tryDecryptSecret(tracked.encryptedSecret, masterKey);
+	if (secret === null) {
+		ctx.logger.error({ trackingId }, "Failed to decrypt webhook secret");
 		return reply.code(500).send({ error: "Server configuration error" });
+	}
+
+	// The previous secret only bridges a rotation. One stored under an earlier
+	// MASTER_KEY can never match, so it must not block the current secret — that
+	// is exactly the state `/repo regenerate-secret` leaves after a key change.
+	const previousSecrets: string[] = [];
+	if (tracked.encryptedPreviousSecret) {
+		const previous = tryDecryptSecret(tracked.encryptedPreviousSecret, masterKey);
+		if (previous === null) {
+			ctx.logger.warn({ trackingId }, "Ignoring previous webhook secret that no longer decrypts");
+		} else {
+			previousSecrets.push(previous);
+		}
 	}
 
 	const match = await verifyGitHubSignature(secret, rawBody, signature, previousSecrets);
@@ -210,19 +226,32 @@ async function handleWebhook(
 		return reply.code(200).send({ ok: true, ignored: true, reason: "unsupported_event" });
 	}
 
-	const guild = await repository.getGuildSettings(tracked.guildId);
-	const outcome = await dispatchEvent(
-		{
-			client: discord,
-			repository,
-			logger: ctx.logger,
-			defaults: ctx.renderDefaults,
-		},
-		tracked,
-		eventType,
-		request.body,
-		guild,
-	);
+	let outcome: DispatchOutcome;
+	try {
+		const guild = await repository.getGuildSettings(tracked.guildId);
+		outcome = await dispatchEvent(
+			{
+				client: discord,
+				repository,
+				logger: ctx.logger,
+				defaults: ctx.renderDefaults,
+			},
+			tracked,
+			eventType,
+			request.body,
+			guild,
+		);
+	} catch (err) {
+		await releaseClaim(ctx, deliveryId);
+		throw err;
+	}
+
+	// Nothing reached Discord, so un-record the delivery: once the channel or
+	// permissions are fixed, GitHub's "Redeliver" must post it rather than be
+	// ignored as a duplicate of this attempt.
+	if (outcome.status === "failed" || outcome.status === "bad_channel") {
+		await releaseClaim(ctx, deliveryId);
+	}
 
 	switch (outcome.status) {
 		case "delivered":
@@ -251,6 +280,15 @@ async function handleWebhook(
 			return reply.code(200).send({ ok: true, delivered: false, reason: "bad_channel" });
 		case "failed":
 			return reply.code(500).send({ error: "Delivery failed" });
+	}
+}
+
+/** Best effort: failing to release only costs a later redelivery, never this response. */
+async function releaseClaim(ctx: ServerContext, deliveryId: string): Promise<void> {
+	try {
+		await ctx.repository?.releaseDelivery(deliveryId);
+	} catch (err) {
+		ctx.logger.error({ err, deliveryId }, "Failed to release delivery for redelivery");
 	}
 }
 

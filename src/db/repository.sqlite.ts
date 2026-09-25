@@ -211,6 +211,10 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 			return row !== undefined;
 		},
 
+		async releaseDelivery(deliveryId) {
+			db.delete(schema.deliveries).where(eq(schema.deliveries.deliveryId, deliveryId)).run();
+		},
+
 		async activityByDay(trackingIds, days) {
 			const buckets = new Map<string, number[]>();
 			if (trackingIds.length === 0 || days <= 0) return buckets;
