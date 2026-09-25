@@ -1,6 +1,16 @@
 import type { AccentKey } from "../../design/tokens.js";
+import { LANGUAGE_COLORS } from "./languages.generated.js";
 
-export const THEME_IDS = ["default", "github", "neon", "mono", "language"] as const;
+export const THEME_IDS = [
+	"default",
+	"github",
+	"neon",
+	"catppuccin",
+	"nord",
+	"accessible",
+	"mono",
+	"language",
+] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 
 export const DEFAULT_THEME: ThemeId = "default";
@@ -125,6 +135,125 @@ const neonPalette: Palette = {
 	sponsor: 0xf472b6,
 };
 
+/**
+ * The colour roles a palette is built from. Every accent maps onto one, so a new
+ * theme only picks a dozen colours and still covers every event.
+ */
+interface Roles {
+	neutral: number;
+	primary: number;
+	info: number;
+	success: number;
+	failure: number;
+	critical: number;
+	warning: number;
+	caution: number;
+	merged: number;
+	special: number;
+	teal: number;
+	indigo: number;
+}
+
+function fromRoles(r: Roles): Palette {
+	return {
+		neutral: r.neutral,
+		push: r.primary,
+		branch: r.teal,
+		tagRef: r.teal,
+		delete: r.caution,
+		prOpen: r.info,
+		prDraft: r.neutral,
+		prMerged: r.merged,
+		prClosed: r.failure,
+		review: r.info,
+		reviewApproved: r.success,
+		reviewChanges: r.caution,
+		comment: r.neutral,
+		issueOpen: r.warning,
+		issueClosed: r.merged,
+		issueNotPlanned: r.neutral,
+		label: r.merged,
+		milestone: r.info,
+		release: r.merged,
+		prerelease: r.special,
+		packageAccent: r.merged,
+		workflowRunning: r.warning,
+		workflowSuccess: r.success,
+		workflowFailure: r.failure,
+		workflowCancelled: r.neutral,
+		deployment: r.info,
+		deploymentSuccess: r.success,
+		deploymentFailure: r.failure,
+		security: r.caution,
+		securityCritical: r.critical,
+		securityHigh: r.caution,
+		securityMedium: r.warning,
+		securityLow: r.neutral,
+		securityResolved: r.success,
+		discussion: r.indigo,
+		discussionAnswered: r.success,
+		fork: r.indigo,
+		star: r.warning,
+		sponsor: r.special,
+		member: r.teal,
+		wiki: r.info,
+		project: r.merged,
+		repoMeta: r.neutral,
+		key: r.warning,
+	};
+}
+
+/** Catppuccin Mocha: soft pastels made for dark themes. */
+const catppuccinPalette = fromRoles({
+	neutral: 0x9399b2,
+	primary: 0x89b4fa,
+	info: 0x74c7ec,
+	success: 0xa6e3a1,
+	failure: 0xf38ba8,
+	critical: 0xeba0ac,
+	warning: 0xf9e2af,
+	caution: 0xfab387,
+	merged: 0xcba6f7,
+	special: 0xf5c2e7,
+	teal: 0x94e2d5,
+	indigo: 0xb4befe,
+});
+
+/** Nord: cool frost blues with muted aurora accents for state. */
+const nordPalette = fromRoles({
+	neutral: 0x7b88a1,
+	primary: 0x88c0d0,
+	info: 0x81a1c1,
+	success: 0xa3be8c,
+	failure: 0xbf616a,
+	critical: 0xbf616a,
+	warning: 0xebcb8b,
+	caution: 0xd08770,
+	merged: 0xb48ead,
+	special: 0xb48ead,
+	teal: 0x8fbcbb,
+	indigo: 0x5e81ac,
+});
+
+/**
+ * Okabe–Ito: a palette chosen to stay distinguishable with the common forms of
+ * colour blindness, so success and failure never rely on red versus green alone.
+ */
+const accessiblePalette = fromRoles({
+	neutral: 0x999999,
+	primary: 0x56b4e9,
+	info: 0x0072b2,
+	success: 0x009e73,
+	failure: 0xd55e00,
+	critical: 0xd55e00,
+	warning: 0xf0e442,
+	caution: 0xe69f00,
+	merged: 0xcc79a7,
+	special: 0xcc79a7,
+	teal: 0x009e73,
+	indigo: 0x0072b2,
+});
+
 const monoPalette: Palette = Object.fromEntries(
 	(Object.keys(defaultPalette) as AccentKey[]).map((key) => [key, 0x9ca3af]),
 ) as Palette;
@@ -133,36 +262,29 @@ const PALETTES: Record<Exclude<ThemeId, "language">, Palette> = {
 	default: defaultPalette,
 	github: githubPalette,
 	neon: neonPalette,
+	catppuccin: catppuccinPalette,
+	nord: nordPalette,
+	accessible: accessiblePalette,
 	mono: monoPalette,
 };
 
-/** Approximate GitHub Linguist colors for the `language` theme. */
-const LANGUAGE_COLORS: Record<string, number> = {
-	typescript: 0x3178c6,
-	javascript: 0xf1e05a,
-	python: 0x3572a5,
-	rust: 0xdea584,
-	go: 0x00add8,
-	java: 0xb07219,
-	kotlin: 0xa97bff,
-	swift: 0xf05138,
-	"c++": 0xf34b7d,
-	c: 0x555555,
-	"c#": 0x178600,
-	ruby: 0x701516,
-	php: 0x4f5d95,
-	dart: 0x00b4ab,
-	elixir: 0x6e4a7e,
-	haskell: 0x5e5086,
-	lua: 0x000080,
-	scala: 0xc22d40,
-	shell: 0x89e051,
-	html: 0xe34c26,
-	css: 0x663399,
-	vue: 0x41b883,
-	svelte: 0xff3e00,
-	zig: 0xec915c,
-};
+/**
+ * Some Linguist colours are close to black (Lua is navy, C is dark grey) and all but
+ * vanish as an accent bar on Discord's dark background. Those are lifted toward
+ * white just enough to show, keeping their hue.
+ */
+function visible(color: number): number {
+	const channel = (shift: number) => ((color >> shift) & 0xff) / 255;
+	const linear = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+	const luminance =
+		0.2126 * linear(channel(16)) + 0.7152 * linear(channel(8)) + 0.0722 * linear(channel(0));
+	if (luminance >= 0.05) return color;
+	const lift = (shift: number) => {
+		const value = (color >> shift) & 0xff;
+		return Math.round(value + (255 - value) * 0.35) << shift;
+	};
+	return lift(16) | lift(8) | lift(0);
+}
 
 /**
  * Accents whose colour carries meaning — pass/fail, severity, merged/closed. The
@@ -202,7 +324,7 @@ export function resolveAccent(accent: AccentKey, ctx: AccentContext): number {
 	if (ctx.theme === "language") {
 		const language = ctx.language?.toLowerCase();
 		const color = language && !STATUS_ACCENTS.has(accent) ? LANGUAGE_COLORS[language] : undefined;
-		return color ?? defaultPalette[accent];
+		return color === undefined ? defaultPalette[accent] : visible(color);
 	}
 	return PALETTES[ctx.theme][accent];
 }

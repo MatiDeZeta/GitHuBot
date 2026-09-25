@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { EVENT_TYPES } from "../../config/events.js";
 import { resolveText } from "../../i18n/index.js";
 import { buildEventTemplate } from "./events/index.js";
 import { type RenderOptions, renderTemplate } from "./render.js";
-import type { EventTemplate } from "./template.js";
+import { sampleTemplate } from "./samples.js";
+import { DISPLAY_MODES, type EventTemplate } from "./template.js";
 
 const repository = {
 	full_name: "acme/app",
@@ -250,5 +252,59 @@ describe("security alerts", () => {
 		expect(template.links?.map((link) => link.url)).toContain(
 			"https://github.com/acme/app/blob/abc123/src/view.ts#L12",
 		);
+	});
+});
+
+describe("Discord limits", () => {
+	/** Discord counts nested components too; every object carrying a numeric `type` is one. */
+	function measure(components: { toJSON(): unknown }[]) {
+		let count = 0;
+		let chars = 0;
+		let widestContainer = 0;
+		const walk = (node: unknown) => {
+			if (Array.isArray(node)) return node.forEach(walk);
+			if (!node || typeof node !== "object") return;
+			const record = node as Record<string, unknown>;
+			if (typeof record.type === "number") count += 1;
+			if (typeof record.content === "string") chars += record.content.length;
+			if (record.type === 17 && Array.isArray(record.components)) {
+				widestContainer = Math.max(widestContainer, record.components.length);
+			}
+			Object.values(record).forEach(walk);
+		};
+		walk(components.map((component) => component.toJSON()));
+		return { count, chars, widestContainer };
+	}
+
+	const actor = { login: "ada", avatarUrl: "https://avatars.githubusercontent.com/u/1" };
+
+	it("keeps every sample event within the per-message limits, in every mode and language", () => {
+		for (const event of EVENT_TYPES) {
+			for (const mode of DISPLAY_MODES) {
+				for (const locale of ["en", "es"] as const) {
+					const template = sampleTemplate(event, "acme/app", "https://github.com/acme/app", actor);
+					const { count, chars, widestContainer } = measure(
+						renderTemplate(template, { theme: "default", mode, locale }).components,
+					);
+					const where = `${event} ${mode} ${locale}`;
+					expect(count, where).toBeLessThanOrEqual(40);
+					expect(chars, where).toBeLessThanOrEqual(4000);
+					expect(widestContainer, where).toBeLessThanOrEqual(10);
+				}
+			}
+		}
+	});
+
+	it("fits the two-event style preview in one reply", () => {
+		const components = ["pull_request", "workflow_run"].flatMap(
+			(event) =>
+				renderTemplate(
+					sampleTemplate(event as "pull_request", "acme/app", "https://github.com/acme/app", actor),
+					{ theme: "catppuccin", mode: "detailed", locale: "es" },
+				).components,
+		);
+		const { count, chars } = measure(components);
+		expect(count).toBeLessThanOrEqual(39);
+		expect(chars).toBeLessThanOrEqual(3700);
 	});
 });

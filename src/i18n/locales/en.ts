@@ -388,6 +388,7 @@ export const en = {
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal dollar sign before the {amount} placeholder
 	"value.monthly": "${amount}/month",
 	"value.testBody": "If you can read this, GitHuBot can post to this channel.",
+	"value.testBadge": "🧪 **test message** — not real activity",
 
 	/* ------------------------------------------------------------- states -- */
 	// GitHub's state, conclusion and severity values. Unknown ones fall back to
@@ -491,6 +492,8 @@ export const en = {
 	"cmd.repo.style.description": "Change the theme and display density",
 	"cmd.repo.style.option.theme": "Accent palette",
 	"cmd.repo.style.option.mode": "Display density",
+	"cmd.repo.serverStyle.description":
+		"Set the default theme and density for every repository in this server",
 	"cmd.repo.health.description": "Show delivery health for a repository",
 	"cmd.repo.language.description": "Set the language used for this server's messages",
 	"cmd.repo.language.option.locale": "Language",
@@ -624,6 +627,9 @@ export const en = {
 	"repo.style.themeDefault": "Classic",
 	"repo.style.themeGithub": "GitHub",
 	"repo.style.themeNeon": "Neon",
+	"repo.style.themeCatppuccin": "Catppuccin",
+	"repo.style.themeNord": "Nord",
+	"repo.style.themeAccessible": "Accessible (colour-blind safe)",
 	"repo.style.themeMono": "Monochrome",
 	"repo.style.themeLanguage": "By language",
 	"repo.style.modeDetailed": "Detailed",
@@ -631,6 +637,12 @@ export const en = {
 	"repo.style.inherit": "Server default",
 	"repo.style.inherited": "{value} (server default)",
 	"repo.style.current": "`{repo}` uses the **{theme}** theme in **{mode}** mode.",
+	"repo.serverStyle.saved": "This server now defaults to the **{theme}** theme in **{mode}** mode.",
+	"repo.serverStyle.current": "This server defaults to the **{theme}** theme in **{mode}** mode.",
+	"repo.serverStyle.note":
+		"-# Repositories with their own `/repo style` keep it; pick **Server default** there to follow this.",
+	"repo.serverStyle.reset": "Bot default",
+	"repo.serverStyle.botDefault": "{value} (bot default)",
 
 	/* --------------------------------------------------- /repo: health -- */
 	"repo.health.heading": "## Delivery health · `{repo}`",

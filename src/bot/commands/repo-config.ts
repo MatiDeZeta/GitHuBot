@@ -4,6 +4,7 @@ import {
 	MessageFlags,
 	ModalBuilder,
 	type ModalSubmitInteraction,
+	TextDisplayBuilder,
 	TextInputBuilder,
 	TextInputStyle,
 } from "discord.js";
@@ -28,6 +29,7 @@ import {
 	t,
 } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
+import { type RenderOptions, renderTemplate } from "../render/render.js";
 import { sampleTemplate } from "../render/samples.js";
 import { DISPLAY_MODES, type DisplayMode, isDisplayMode } from "../render/template.js";
 import { isThemeId, THEME_IDS, type ThemeId } from "../render/theme.js";
@@ -35,6 +37,7 @@ import {
 	channelAccessWarning,
 	ephemeralText,
 	ephemeralTextEdit,
+	ephemeralV2,
 	guildContext,
 	isAllowedUser,
 	relative,
@@ -240,13 +243,88 @@ export async function handleStyle(
 	const label = (key: TranslationKey, inherited: boolean) =>
 		inherited ? t(locale, "repo.style.inherited", { value: t(locale, key) }) : t(locale, key);
 
+	const summary = t(locale, changed ? "repo.style.saved" : "repo.style.current", {
+		repo: slugOf(updated),
+		theme: label(THEME_LABELS[effective.theme], updated.theme === null),
+		mode: label(MODE_LABELS[effective.mode], updated.displayMode === null),
+	});
 	await interaction.reply(
-		ephemeralText(
-			t(locale, changed ? "repo.style.saved" : "repo.style.current", {
-				repo: slugOf(updated),
-				theme: label(THEME_LABELS[effective.theme], updated.theme === null),
-				mode: label(MODE_LABELS[effective.mode], updated.displayMode === null),
-			}),
+		ephemeralV2(
+			new TextDisplayBuilder().setContent(summary),
+			...stylePreview(
+				slugOf(updated),
+				`https://github.com/${slugOf(updated)}`,
+				effective,
+				interaction,
+			),
+		),
+	);
+}
+
+/**
+ * Two contrasting sample events — a merge and a failed run — rendered in the chosen
+ * style, so the reply shows how the theme tells good news from bad before any real
+ * event arrives.
+ */
+function stylePreview(
+	repo: string,
+	repoUrl: string,
+	options: RenderOptions,
+	interaction: ChatInputCommandInteraction,
+) {
+	const actor = {
+		login: interaction.user.username,
+		avatarUrl: interaction.user.displayAvatarURL({ extension: "png" }),
+	};
+	return PREVIEW_EVENTS.flatMap(
+		(event) => renderTemplate(sampleTemplate(event, repo, repoUrl, actor), options).components,
+	);
+}
+
+const PREVIEW_EVENTS = ["pull_request", "workflow_run"] as const;
+
+/**
+ * `/repo server-style`: the default every repository in this server uses unless it
+ * sets its own with `/repo style`. `inherit` here falls back to the instance
+ * defaults from the environment.
+ */
+export async function handleServerStyle(
+	interaction: ChatInputCommandInteraction,
+	ctx: BotContext,
+	locale: AppLocale,
+): Promise<void> {
+	const guildId = interaction.guildId;
+	if (!guildId) return;
+
+	const rawTheme = interaction.options.getString("theme");
+	const rawMode = interaction.options.getString("mode");
+	const update: { defaultTheme?: ThemeId | null; defaultDisplayMode?: DisplayMode | null } = {};
+	if (rawTheme === INHERIT) update.defaultTheme = null;
+	else if (isThemeId(rawTheme)) update.defaultTheme = rawTheme;
+	if (rawMode === INHERIT) update.defaultDisplayMode = null;
+	else if (isDisplayMode(rawMode)) update.defaultDisplayMode = rawMode;
+
+	const changed = Object.keys(update).length > 0;
+	if (changed) await ctx.repository.updateGuildSettings(guildId, update);
+
+	const settings = await ctx.repository.getGuildSettings(guildId);
+	const effective = renderOptionsFor(null, settings, ctx.renderDefaults);
+	const label = (key: TranslationKey, inherited: boolean) =>
+		inherited
+			? t(locale, "repo.serverStyle.botDefault", { value: t(locale, key) })
+			: t(locale, key);
+
+	const summary = [
+		t(locale, changed ? "repo.serverStyle.saved" : "repo.serverStyle.current", {
+			theme: label(THEME_LABELS[effective.theme], !settings?.defaultTheme),
+			mode: label(MODE_LABELS[effective.mode], !settings?.defaultDisplayMode),
+		}),
+		t(locale, "repo.serverStyle.note"),
+	].join("\n");
+	await interaction.reply(
+		ephemeralV2(
+			new TextDisplayBuilder().setContent(summary),
+			...stylePreview("your-org/your-repo", "https://github.com", effective, interaction),
 		),
 	);
 }
@@ -258,6 +336,9 @@ const THEME_LABELS = {
 	default: "repo.style.themeDefault",
 	github: "repo.style.themeGithub",
 	neon: "repo.style.themeNeon",
+	catppuccin: "repo.style.themeCatppuccin",
+	nord: "repo.style.themeNord",
+	accessible: "repo.style.themeAccessible",
 	mono: "repo.style.themeMono",
 	language: "repo.style.themeLanguage",
 } as const satisfies Record<ThemeId, TranslationKey>;
@@ -283,6 +364,12 @@ export const MODE_CHOICES = [
 	INHERIT_CHOICE,
 	...DISPLAY_MODES.map((mode) => localizedChoice(MODE_LABELS[mode], mode)),
 ];
+
+/** For the server default, `inherit` means the bot's own (environment) default. */
+const BOT_DEFAULT_CHOICE = localizedChoice("repo.serverStyle.reset", INHERIT);
+
+export const SERVER_THEME_CHOICES = [BOT_DEFAULT_CHOICE, ...THEME_CHOICES.slice(1)];
+export const SERVER_MODE_CHOICES = [BOT_DEFAULT_CHOICE, ...MODE_CHOICES.slice(1)];
 
 export async function handleHealth(
 	interaction: ChatInputCommandInteraction,

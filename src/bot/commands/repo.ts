@@ -23,10 +23,13 @@ import {
 	handleMentions,
 	handlePause,
 	handleRoute,
+	handleServerStyle,
 	handleStyle,
 	handleTest,
 	LOCALE_CHOICES,
 	MODE_CHOICES,
+	SERVER_MODE_CHOICES,
+	SERVER_THEME_CHOICES,
 	showFiltersModal,
 	summarizeFilters,
 	THEME_CHOICES,
@@ -187,6 +190,25 @@ export const repoCommand = {
 			repoOption(describe(sub.setName("health"), "cmd.repo.health.description")),
 		)
 		.addSubcommand((sub) =>
+			describe(sub.setName("server-style"), "cmd.repo.serverStyle.description")
+				.addStringOption((opt) =>
+					opt
+						.setName("theme")
+						.setDescription(t("en", "cmd.repo.style.option.theme"))
+						.setDescriptionLocalizations(localizations("cmd.repo.style.option.theme"))
+						.setRequired(false)
+						.addChoices(...SERVER_THEME_CHOICES),
+				)
+				.addStringOption((opt) =>
+					opt
+						.setName("mode")
+						.setDescription(t("en", "cmd.repo.style.option.mode"))
+						.setDescriptionLocalizations(localizations("cmd.repo.style.option.mode"))
+						.setRequired(false)
+						.addChoices(...SERVER_MODE_CHOICES),
+				),
+		)
+		.addSubcommand((sub) =>
 			describe(sub.setName("language"), "cmd.repo.language.description").addStringOption((opt) =>
 				opt
 					.setName("locale")
@@ -244,6 +266,8 @@ export async function handleRepoCommand(
 			return handleStyle(interaction, ctx, locale);
 		case "health":
 			return handleHealth(interaction, ctx, locale);
+		case "server-style":
+			return handleServerStyle(interaction, ctx, locale);
 		case "language":
 			return handleLanguage(interaction, ctx, locale);
 		default:

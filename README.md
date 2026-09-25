@@ -113,9 +113,10 @@ flowchart TD
 | `/repo route` | Send one category to a different channel |
 | `/repo mentions` | Ping a role for one category |
 | `/repo filters` | Branch / label / author rules (modal) |
-| `/repo style` | Theme and display density |
+| `/repo style` | Theme and display density, with a live preview |
+| `/repo server-style` | Default theme and density for every repo in the server |
 | `/repo pause` · `/repo resume` | Mute without touching GitHub |
-| `/repo test` | Post a sample message to verify setup |
+| `/repo test` | Post a realistic sample of any event to verify setup |
 | `/repo health` | Delivery counters and the last error |
 | `/repo webhook-info` | Re-show Payload URL + secret |
 | `/repo regenerate-secret` | Rotate the secret with a grace period |
@@ -173,15 +174,20 @@ Branch rules apply to any event whose payload names a branch: pushes, branch/tag
 
 ## Appearance
 
-**Themes** — `/repo style owner/repo theme:<id>`
+**Themes** — `/repo style owner/repo theme:<name>` for one repository, or `/repo server-style` for the whole server. Both reply with a preview of a merge and a failed run in the chosen style.
 
 | Theme | Look |
 |---|---|
-| `default` | Balanced, saturated accents |
+| Classic (`default`) | Balanced, saturated accents |
 | `github` | Mirrors GitHub's own state colors |
 | `neon` | High saturation, tuned for dark themes |
+| `catppuccin` | Catppuccin Mocha pastels |
+| `nord` | Nord's cool frost blues |
+| `accessible` | Okabe–Ito palette, distinguishable with common colour blindness |
 | `mono` | Single neutral grey |
-| `language` | Accent from the repository's primary language |
+| `language` | Accent from the repository's language (GitHub's full Linguist list); pass/fail and severity keep their colours |
+
+Resolution order: the repository's own style → the server default → `DEFAULT_THEME` / `DEFAULT_DISPLAY_MODE`. Choose **Server default** in `/repo style` to go back to following the server.
 
 **Density** — `/repo style owner/repo mode:<detailed\|compact>`. Detailed shows avatars, quoted bodies, labelled fields, media galleries and relative timestamps; compact is one line plus link buttons.
 

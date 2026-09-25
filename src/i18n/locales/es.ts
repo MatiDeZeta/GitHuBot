@@ -361,6 +361,7 @@ export const es: { [K in keyof typeof en]?: string } = {
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: a literal dollar sign before the {amount} placeholder
 	"value.monthly": "${amount}/mes",
 	"value.testBody": "Si puedes leer esto, GitHuBot puede publicar en este canal.",
+	"value.testBadge": "🧪 **mensaje de prueba** — no es actividad real",
 
 	/* ------------------------------------------------------------- states -- */
 	// GitHub's state, conclusion and severity values. Unknown ones fall back to
@@ -464,6 +465,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"cmd.repo.style.description": "Cambiar el tema y la densidad de visualización",
 	"cmd.repo.style.option.theme": "Paleta de acentos",
 	"cmd.repo.style.option.mode": "Densidad de visualización",
+	"cmd.repo.serverStyle.description":
+		"Define el tema y la densidad predeterminados para todos los repositorios del servidor",
 	"cmd.repo.health.description": "Mostrar la salud de entregas de un repositorio",
 	"cmd.repo.language.description": "Definir el idioma de los mensajes de este servidor",
 	"cmd.repo.language.option.locale": "Idioma",
@@ -604,6 +607,9 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.style.themeDefault": "Clásico",
 	"repo.style.themeGithub": "GitHub",
 	"repo.style.themeNeon": "Neón",
+	"repo.style.themeCatppuccin": "Catppuccin",
+	"repo.style.themeNord": "Nord",
+	"repo.style.themeAccessible": "Accesible (apto para daltonismo)",
 	"repo.style.themeMono": "Monocromo",
 	"repo.style.themeLanguage": "Por lenguaje",
 	"repo.style.modeDetailed": "Detallado",
@@ -611,6 +617,14 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.style.inherit": "Predeterminado del servidor",
 	"repo.style.inherited": "{value} (predeterminado del servidor)",
 	"repo.style.current": "`{repo}` usa el tema **{theme}** en modo **{mode}**.",
+	"repo.serverStyle.saved":
+		"Este servidor ahora usa por defecto el tema **{theme}** en modo **{mode}**.",
+	"repo.serverStyle.current":
+		"Este servidor usa por defecto el tema **{theme}** en modo **{mode}**.",
+	"repo.serverStyle.note":
+		"-# Los repositorios con su propio `/repo style` lo conservan; elige **Predeterminado del servidor** ahí para seguir este.",
+	"repo.serverStyle.reset": "Predeterminado del bot",
+	"repo.serverStyle.botDefault": "{value} (predeterminado del bot)",
 
 	/* --------------------------------------------------- /repo: health -- */
 	"repo.health.heading": "## Salud de entregas · `{repo}`",
