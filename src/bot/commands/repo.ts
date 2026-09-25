@@ -18,6 +18,7 @@ import { type AppLocale, localizations, type TranslationKey, t } from "../../i18
 import type { BotContext } from "../client.js";
 import {
 	CATEGORY_CHOICES,
+	handleAlerts,
 	handleHealth,
 	handleLanguage,
 	handleMentions,
@@ -209,6 +210,16 @@ export const repoCommand = {
 				),
 		)
 		.addSubcommand((sub) =>
+			describe(sub.setName("alerts"), "cmd.repo.alerts.description").addChannelOption((opt) =>
+				opt
+					.setName("channel")
+					.setDescription(t("en", "cmd.repo.alerts.option.channel"))
+					.setDescriptionLocalizations(localizations("cmd.repo.alerts.option.channel"))
+					.addChannelTypes(...TEXT_CHANNEL_TYPES)
+					.setRequired(false),
+			),
+		)
+		.addSubcommand((sub) =>
 			describe(sub.setName("language"), "cmd.repo.language.description").addStringOption((opt) =>
 				opt
 					.setName("locale")
@@ -268,6 +279,8 @@ export async function handleRepoCommand(
 			return handleHealth(interaction, ctx, locale);
 		case "server-style":
 			return handleServerStyle(interaction, ctx, locale);
+		case "alerts":
+			return handleAlerts(interaction, ctx, locale);
 		case "language":
 			return handleLanguage(interaction, ctx, locale);
 		default:

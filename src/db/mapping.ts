@@ -44,6 +44,7 @@ export interface RawGuildRow {
 	locale: string | null;
 	defaultTheme: string | null;
 	defaultDisplayMode: string | null;
+	alertChannelId: string | null;
 }
 
 /** JSON columns can hold legacy text, so every read is defensive. */
@@ -147,6 +148,7 @@ export function mapGuildRow(row: RawGuildRow): GuildSettings {
 		locale: asLocale(row.locale),
 		defaultTheme: asTheme(row.defaultTheme),
 		defaultDisplayMode: asDisplayMode(row.defaultDisplayMode),
+		alertChannelId: row.alertChannelId ?? null,
 	};
 }
 

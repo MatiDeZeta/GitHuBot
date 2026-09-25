@@ -464,6 +464,14 @@ export const en = {
 	"field.validity": "Validity",
 	"field.dismissedReason": "Reason",
 	"field.ids": "IDs",
+	"alert.failing.title": "Deliveries are failing",
+	"alert.failing.body":
+		"GitHub is sending events for this repository, but GitHuBot cannot post them. Fix the channel's permissions (or move it with `/repo channel`), then use **Redeliver** on GitHub's webhook page for anything missed.",
+	"alert.recovered.title": "Deliveries recovered",
+	"alert.recovered.body": "Messages are posting again.",
+	"field.channel": "Channel",
+	"field.error": "Error",
+	"link.webhookDeliveries": "Recent deliveries",
 	"fmt.code": "`{value}`",
 
 	/* --------------------------------------------------- command: /repo -- */
@@ -494,6 +502,8 @@ export const en = {
 	"cmd.repo.style.option.mode": "Display density",
 	"cmd.repo.serverStyle.description":
 		"Set the default theme and density for every repository in this server",
+	"cmd.repo.alerts.description": "Get an alert when a repository's deliveries start failing",
+	"cmd.repo.alerts.option.channel": "Where to post alerts (leave empty to turn alerts off)",
 	"cmd.repo.health.description": "Show delivery health for a repository",
 	"cmd.repo.language.description": "Set the language used for this server's messages",
 	"cmd.repo.language.option.locale": "Language",
@@ -564,6 +574,8 @@ export const en = {
 	"repo.channel.done": "`{repo}` will now post to <#{channel}>.",
 	"repo.permissions.missing":
 		"⚠️ GitHuBot cannot post in <#{channel}> yet — it is missing **{permissions}** there. Grant it in the channel's permissions, then run `/repo test {repo}`.",
+	"repo.permissions.missingPlain":
+		"⚠️ GitHuBot cannot post in <#{channel}> yet — it is missing **{permissions}** there. Grant it in the channel's permissions.",
 	"perm.ViewChannel": "View Channel",
 	"perm.SendMessages": "Send Messages",
 	"perm.SendMessagesInThreads": "Send Messages in Threads",
@@ -643,6 +655,9 @@ export const en = {
 		"-# Repositories with their own `/repo style` keep it; pick **Server default** there to follow this.",
 	"repo.serverStyle.reset": "Bot default",
 	"repo.serverStyle.botDefault": "{value} (bot default)",
+	"repo.alerts.set":
+		"Delivery alerts for this server go to <#{channel}>: one when a repository starts failing, one when it recovers.",
+	"repo.alerts.cleared": "Delivery alerts are off for this server.",
 
 	/* --------------------------------------------------- /repo: health -- */
 	"repo.health.heading": "## Delivery health · `{repo}`",

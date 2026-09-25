@@ -65,6 +65,8 @@ export interface GuildSettings {
 	locale: AppLocale | null;
 	defaultTheme: ThemeId | null;
 	defaultDisplayMode: DisplayMode | null;
+	/** Channel for delivery-failure alerts, or null when alerts are off. */
+	alertChannelId: string | null;
 }
 
 export interface CreateTrackedRepoInput {
@@ -174,6 +176,18 @@ export interface RepoRepository {
 	 * instead of being dropped as a duplicate.
 	 */
 	releaseDelivery(deliveryId: string): Promise<void>;
+	/**
+	 * Marks the bot as removed from a server (a date) or back in it (null). An existing
+	 * mark is kept, so restarts never reset the grace period.
+	 */
+	setGuildLeft(guildId: string, leftAt: Date | null): Promise<void>;
+	/** Every server GitHuBot holds data for, to reconcile against Discord at startup. */
+	listGuildIds(): Promise<string[]>;
+	/**
+	 * Deletes every server the bot left before `cutoff`, with its tracked repositories
+	 * (by cascade) and their delivery records. Returns how many servers were purged.
+	 */
+	purgeGuildsLeftBefore(cutoff: Date): Promise<number>;
 	/** Records the name GitHub reports for this webhook, or null when it matches. */
 	setObservedFullName(trackingId: string, fullName: string | null): Promise<void>;
 	/** Deletes ledger rows older than `olderThan`; returns how many were removed. */

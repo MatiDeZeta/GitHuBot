@@ -120,6 +120,7 @@ flowchart TD
 | `/repo health` | Delivery counters and the last error |
 | `/repo webhook-info` | Re-show Payload URL + secret |
 | `/repo regenerate-secret` | Rotate the secret with a grace period |
+| `/repo alerts` | Post an alert in a channel when a repo's deliveries start failing (and recover) |
 | `/repo language` | Set this server's language |
 | `/help` | Setup, events, filters, appearance, troubleshooting |
 | `/stats` | Uptime, counters, latency, busiest repos |
@@ -283,6 +284,7 @@ pnpm dev
 | `EMOJI_OVERRIDES` | no | JSON map of icon key → custom emoji |
 | `PRESENCE_STREAM_URL` | no | Twitch/YouTube URL enabling the Streaming activity |
 | `PRESENCE_ROTATION` | no | JSON array replacing the built-in presence lineup |
+| `EMOJI_SYNC` | no | Upload the bundled GitHub-style icons as app emojis at startup. Default `false` |
 
 <sub>*Required for full Discord + webhook mode. Without them the process still serves `/health` (degraded boot).</sub>
 
@@ -376,8 +378,15 @@ Version-specific notes are in [`CHANGELOG.md`](CHANGELOG.md).
 | `404` on deliveries | Stale Payload URL — re-copy it from `/repo webhook-info` |
 | Message never posts | Bot needs **View Channel** and **Send Messages**; `/repo test` will surface the exact error. Once fixed, use **Redeliver** on GitHub to post the missed event |
 | "GitHub reports a different repository" | The repository was renamed or transferred (messages still post; only the name GitHuBot shows is stale), or the webhook was added to another repository — delete it there |
+| No alert when a repo breaks | Set an alert channel with `/repo alerts` |
 | Data lost on redeploy | Mount SQLite under `/app/data` and set `DATABASE_URL` to match |
 | Secrets stopped working | `MASTER_KEY` changed — run `/repo regenerate-secret` and paste the new secret into GitHub |
+
+---
+
+## Privacy
+
+GitHuBot stores Discord IDs, repository names, settings, an encrypted webhook secret and 30 days of delivery IDs — never webhook payloads, message contents or GitHub credentials. When the bot is removed from a server, that server's data is deleted 7 days later. [`PRIVACY.md`](PRIVACY.md) lists everything.
 
 ---
 

@@ -104,6 +104,11 @@ cooldown per command rather than lowering it permanently:
 pnpm add <pkg>@<version> --config.minimumReleaseAge=0
 ```
 
+## Privacy
+
+What GitHuBot stores, for how long, and how it is deleted is documented in
+[PRIVACY.md](PRIVACY.md).
+
 ## Out of scope (by design)
 
 - Asking the bot to hold a `GITHUB_TOKEN` or call the GitHub API — that is intentionally unsupported.

@@ -10,6 +10,7 @@ import type { Logger } from "../config/logger.js";
 import type { GuildSettings, RepoRepository, TrackedRepo } from "../db/types.js";
 import { type AppLocale, DEFAULT_LOCALE, resolveText } from "../i18n/index.js";
 import { metrics } from "../metrics.js";
+import { maybeAlert } from "./alerts.js";
 import { applyFilters, type FilterReason } from "./filters.js";
 import { planMentions } from "./mentions.js";
 import { resolveChannelId, resolveTarget, send } from "./routing.js";
@@ -69,7 +70,10 @@ export async function dispatchEvent(
 	if (!template) return { status: "no_message" };
 
 	const options = renderOptionsFor(tracked, guild, ctx.defaults);
-	return deliverTemplate(ctx, tracked, eventType, template, options);
+	const outcome = await deliverTemplate(ctx, tracked, eventType, template, options);
+	// Real deliveries only: `/repo test` reports its own result to whoever ran it.
+	await maybeAlert(ctx, tracked, guild, outcome, resolveChannelId(tracked, eventType), options);
+	return outcome;
 }
 
 /** Shared by real deliveries and `/repo test`. */

@@ -130,3 +130,57 @@ describe("migrations", () => {
 		expect(applied).toEqual(["0000_ok.sql"]);
 	});
 });
+
+describe("server lifecycle", () => {
+	let dir: string;
+	let db: DbHandle;
+
+	beforeEach(async () => {
+		dir = mkdtempSync(join(tmpdir(), "githubot-guilds-"));
+		const url = `file:${join(dir, "test.db")}`;
+		await migrate(url);
+		db = createDb(url);
+		await db.repository.addRepo({
+			guildId: "gone",
+			owner: "acme",
+			repo: "app",
+			channelId: "c1",
+			trackingId: "t-gone",
+			encryptedSecret: "x",
+			enabledEvents: [...DEFAULT_ENABLED_EVENTS],
+		});
+		await db.repository.ensureGuild("stays");
+		await db.repository.tryRecordDelivery("d1", "t-gone");
+	});
+
+	afterEach(async () => {
+		await db.close();
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("keeps the first removal date, so restarts never reset the grace period", async () => {
+		await db.repository.setGuildLeft("gone", new Date(1_000));
+		await db.repository.setGuildLeft("gone", new Date(9_000_000_000_000));
+		// Purging with a cutoff between the two dates proves the first one stuck.
+		expect(await db.repository.purgeGuildsLeftBefore(new Date(2_000))).toBe(1);
+	});
+
+	it("purges a departed server with its repositories and delivery records", async () => {
+		await db.repository.setGuildLeft("gone", new Date(1_000));
+		expect(await db.repository.purgeGuildsLeftBefore(new Date())).toBe(1);
+		expect(await db.repository.getRepo("gone", "acme", "app")).toBeNull();
+		expect(await db.repository.tryRecordDelivery("d1", "t-gone")).toBe(true);
+		expect(await db.repository.listGuildIds()).toEqual(["stays"]);
+	});
+
+	it("cancels the purge when the bot is invited back", async () => {
+		await db.repository.setGuildLeft("gone", new Date(1_000));
+		await db.repository.setGuildLeft("gone", null);
+		expect(await db.repository.purgeGuildsLeftBefore(new Date())).toBe(0);
+	});
+
+	it("deletes a removed repository's delivery records immediately", async () => {
+		await db.repository.removeRepo("gone", "acme", "app");
+		expect(await db.repository.tryRecordDelivery("d1", "t-gone")).toBe(true);
+	});
+});

@@ -172,7 +172,8 @@ export async function channelAccessWarning(
 	interaction: { client: Client },
 	channelId: string,
 	locale: AppLocale,
-	repo: string,
+	/** When given, the warning suggests `/repo test` for this repository once fixed. */
+	repo?: string,
 ): Promise<string | null> {
 	// Cached channels answer instantly, but an archived thread costs a REST call and
 	// some callers have not deferred; an unanswered check must never cost the reply.
@@ -184,11 +185,10 @@ export async function channelAccessWarning(
 		}),
 	]).finally(() => clearTimeout(timer));
 	if (missing.length === 0) return null;
-	return t(locale, "repo.permissions.missing", {
-		channel: channelId,
-		permissions: missing.map((name) => t(locale, `perm.${name}`)).join(", "),
-		repo,
-	});
+	const permissions = missing.map((name) => t(locale, `perm.${name}`)).join(", ");
+	return repo
+		? t(locale, "repo.permissions.missing", { channel: channelId, permissions, repo })
+		: t(locale, "repo.permissions.missingPlain", { channel: channelId, permissions });
 }
 
 export function relative(date: Date | null): string | null {

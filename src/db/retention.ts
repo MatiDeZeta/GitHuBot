@@ -8,14 +8,22 @@ import type { RepoRepository } from "./types.js";
  */
 export const DELIVERY_RETENTION_DAYS = 30;
 
-const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/**
+ * How long a server's data is kept after the bot is removed from it. Discord outages
+ * never count — they arrive as an *unavailable* guild, not a removal — so this only
+ * covers someone kicking the bot by mistake and inviting it back.
+ */
+export const GUILD_GRACE_DAYS = 7;
+
+const INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
 
 /**
- * Prunes once at boot and then every six hours. Returns a stop function for
- * shutdown. The timer is unref'd so it never keeps the process alive on its own.
+ * Prunes old delivery records and purges servers the bot left, once at boot and then
+ * every six hours. Returns a stop function for shutdown. The timer is unref'd so it
+ * never keeps the process alive on its own.
  */
-export function startDeliveryPruning(repository: RepoRepository, logger: Logger): () => void {
+export function startHousekeeping(repository: RepoRepository, logger: Logger): () => void {
 	const run = async () => {
 		try {
 			const cutoff = new Date(Date.now() - DELIVERY_RETENTION_DAYS * DAY_MS);
@@ -24,10 +32,17 @@ export function startDeliveryPruning(repository: RepoRepository, logger: Logger)
 		} catch (err) {
 			logger.error({ err }, "Failed to prune delivery records");
 		}
+		try {
+			const cutoff = new Date(Date.now() - GUILD_GRACE_DAYS * DAY_MS);
+			const purged = await repository.purgeGuildsLeftBefore(cutoff);
+			if (purged > 0) logger.info({ servers: purged }, "Deleted data for servers the bot left");
+		} catch (err) {
+			logger.error({ err }, "Failed to purge departed servers");
+		}
 	};
 
 	void run();
-	const timer = setInterval(() => void run(), PRUNE_INTERVAL_MS);
+	const timer = setInterval(() => void run(), INTERVAL_MS);
 	timer.unref();
 	return () => clearInterval(timer);
 }

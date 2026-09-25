@@ -68,6 +68,7 @@ export function createBot(ctx: BotContext): Client {
 	client.once(Events.ClientReady, (readyClient) => {
 		ctx.logger.info({ user: readyClient.user.tag }, "Discord bot ready");
 		void loadIconEmojis(readyClient, ctx);
+		void reconcileGuilds(readyClient, ctx);
 		startPresence(readyClient, {
 			repository: ctx.repository,
 			logger: ctx.logger,
@@ -76,6 +77,27 @@ export function createBot(ctx: BotContext): Client {
 				streamUrl: ctx.env.PRESENCE_STREAM_URL,
 			},
 		});
+	});
+
+	// Removal starts the grace period before a server's data is purged; coming back
+	// cancels it. An outage arrives as an *unavailable* guild, which is not a removal.
+	client.on(Events.GuildDelete, (guild) => {
+		if (!guild.available) return;
+		ctx.repository
+			.setGuildLeft(guild.id, new Date())
+			.then(() =>
+				ctx.logger.info({ guildId: guild.id }, "Removed from server; data purge scheduled"),
+			)
+			.catch((err) =>
+				ctx.logger.error({ err, guildId: guild.id }, "Failed to mark server as left"),
+			);
+	});
+	client.on(Events.GuildCreate, (guild) => {
+		ctx.repository
+			.setGuildLeft(guild.id, null)
+			.catch((err) =>
+				ctx.logger.error({ err, guildId: guild.id }, "Failed to mark server as joined"),
+			);
 	});
 
 	client.on(Events.InteractionCreate, async (interaction: Interaction) => {
@@ -117,6 +139,23 @@ async function loadIconEmojis(client: Client<true>, ctx: BotContext): Promise<vo
 		}
 	} catch (err) {
 		ctx.logger.warn({ err }, "Could not load application emojis; keeping Unicode icons");
+	}
+}
+
+/**
+ * Catches removals that happened while the bot was offline: a server with stored
+ * data that Discord no longer lists starts its grace period now. The ready cache
+ * includes unavailable guilds, so an outage does not count as a removal here either.
+ */
+async function reconcileGuilds(client: Client<true>, ctx: BotContext): Promise<void> {
+	try {
+		const now = new Date();
+		for (const guildId of await ctx.repository.listGuildIds()) {
+			const present = client.guilds.cache.has(guildId);
+			await ctx.repository.setGuildLeft(guildId, present ? null : now);
+		}
+	} catch (err) {
+		ctx.logger.error({ err }, "Failed to reconcile servers at startup");
 	}
 }
 

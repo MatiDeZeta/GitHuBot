@@ -15,6 +15,10 @@ export const guilds = pgTable("guilds", {
 	locale: text("locale"),
 	defaultTheme: text("default_theme"),
 	defaultDisplayMode: text("default_display_mode"),
+	/** Where delivery-failure alerts are posted; null means alerts are off. */
+	alertChannelId: text("alert_channel_id"),
+	/** When the bot was removed from the server; its data is purged after a grace period. */
+	leftAt: timestamp("left_at", { withTimezone: true, mode: "date" }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });

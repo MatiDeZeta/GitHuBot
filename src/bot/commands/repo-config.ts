@@ -329,6 +329,29 @@ export async function handleServerStyle(
 	);
 }
 
+/**
+ * `/repo alerts [channel]`: where this server hears about repositories whose
+ * deliveries start failing (and recover). No channel turns alerts off.
+ */
+export async function handleAlerts(
+	interaction: ChatInputCommandInteraction,
+	ctx: BotContext,
+	locale: AppLocale,
+): Promise<void> {
+	const guildId = interaction.guildId;
+	if (!guildId) return;
+	const channel = interaction.options.getChannel("channel");
+	await ctx.repository.updateGuildSettings(guildId, { alertChannelId: channel?.id ?? null });
+
+	if (!channel) {
+		await interaction.reply(ephemeralText(t(locale, "repo.alerts.cleared")));
+		return;
+	}
+	const done = t(locale, "repo.alerts.set", { channel: channel.id });
+	const access = await channelAccessWarning(interaction, channel.id, locale);
+	await interaction.reply(ephemeralText(access ? `${done}\n\n${access}` : done));
+}
+
 /** Choice value that clears a repository override. */
 const INHERIT = "inherit";
 

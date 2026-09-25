@@ -436,6 +436,14 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"field.validity": "Validez",
 	"field.dismissedReason": "Motivo",
 	"field.ids": "IDs",
+	"alert.failing.title": "Las entregas están fallando",
+	"alert.failing.body":
+		"GitHub está enviando eventos de este repositorio, pero GitHuBot no puede publicarlos. Corrige los permisos del canal (o muévelo con `/repo channel`) y luego usa **Redeliver** en la página del webhook de GitHub para lo que se haya perdido.",
+	"alert.recovered.title": "Las entregas se recuperaron",
+	"alert.recovered.body": "Los mensajes se publican otra vez.",
+	"field.channel": "Canal",
+	"field.error": "Error",
+	"link.webhookDeliveries": "Entregas recientes",
 
 	/* --------------------------------------------------- command: /repo -- */
 	"cmd.repo.description": "Administra los repositorios de GitHub rastreados en este servidor",
@@ -467,6 +475,9 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"cmd.repo.style.option.mode": "Densidad de visualización",
 	"cmd.repo.serverStyle.description":
 		"Define el tema y la densidad predeterminados para todos los repositorios del servidor",
+	"cmd.repo.alerts.description":
+		"Recibe una alerta cuando las entregas de un repositorio empiecen a fallar",
+	"cmd.repo.alerts.option.channel": "Dónde publicar las alertas (vacío para desactivarlas)",
 	"cmd.repo.health.description": "Mostrar la salud de entregas de un repositorio",
 	"cmd.repo.language.description": "Definir el idioma de los mensajes de este servidor",
 	"cmd.repo.language.option.locale": "Idioma",
@@ -539,6 +550,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.channel.done": "`{repo}` ahora publicará en <#{channel}>.",
 	"repo.permissions.missing":
 		"⚠️ GitHuBot todavía no puede publicar en <#{channel}>: le falta **{permissions}** ahí. Concédelo en los permisos del canal y luego ejecuta `/repo test {repo}`.",
+	"repo.permissions.missingPlain":
+		"⚠️ GitHuBot todavía no puede publicar en <#{channel}>: le falta **{permissions}** ahí. Concédelo en los permisos del canal.",
 	"perm.ViewChannel": "Ver canal",
 	"perm.SendMessages": "Enviar mensajes",
 	"perm.SendMessagesInThreads": "Enviar mensajes en hilos",
@@ -625,6 +638,9 @@ export const es: { [K in keyof typeof en]?: string } = {
 		"-# Los repositorios con su propio `/repo style` lo conservan; elige **Predeterminado del servidor** ahí para seguir este.",
 	"repo.serverStyle.reset": "Predeterminado del bot",
 	"repo.serverStyle.botDefault": "{value} (predeterminado del bot)",
+	"repo.alerts.set":
+		"Las alertas de entrega de este servidor van a <#{channel}>: una cuando un repositorio empiece a fallar y otra cuando se recupere.",
+	"repo.alerts.cleared": "Las alertas de entrega están desactivadas en este servidor.",
 
 	/* --------------------------------------------------- /repo: health -- */
 	"repo.health.heading": "## Salud de entregas · `{repo}`",
