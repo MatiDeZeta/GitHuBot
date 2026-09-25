@@ -159,6 +159,11 @@ const envSchema = z.object({
 	PRESENCE_STREAM_URL: z.preprocess(emptyToUndefined, streamUrlSchema.optional()),
 	/** Replaces the built-in rotation entirely when provided. */
 	PRESENCE_ROTATION: z.preprocess(jsonArray, z.array(presenceEntrySchema).min(1).optional()),
+	/**
+	 * Upload the bundled GitHub-style icons as application emojis at startup (only the
+	 * missing ones). Off by default; `pnpm emojis:sync` does the same on demand.
+	 */
+	EMOJI_SYNC: z.preprocess(booleanish, z.boolean().default(false)),
 	/** `{ "push": "<:push:123>" }` to swap Unicode icons for app emojis. */
 	EMOJI_OVERRIDES: z.preprocess(jsonRecord, z.record(z.string(), z.string()).optional()),
 	DEFAULT_LOCALE: z.preprocess(emptyToUndefined, z.enum(SUPPORTED_LOCALES).default("en")),

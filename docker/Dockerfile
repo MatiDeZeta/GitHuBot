@@ -38,6 +38,8 @@ COPY --from=build --chown=githubot:githubot /app/node_modules ./node_modules
 COPY --from=build --chown=githubot:githubot /app/dist ./dist
 COPY --from=build --chown=githubot:githubot /app/package.json ./package.json
 COPY --chown=githubot:githubot drizzle ./drizzle
+# GitHub-style icons for `node dist/tools/sync-emojis.js` / EMOJI_SYNC.
+COPY --chown=githubot:githubot assets ./assets
 COPY docker/entrypoint.sh /entrypoint.sh
 
 RUN mkdir -p /app/data \

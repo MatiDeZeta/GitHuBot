@@ -18,6 +18,9 @@ Thanks for helping improve GitHuBot.
 | `pnpm typecheck` | TypeScript `--noEmit` |
 | `pnpm test` | Vitest |
 | `pnpm build` | Compile to `dist/` |
+| `pnpm generate:languages` | Regenerate language colours from GitHub Linguist |
+| `pnpm emojis:render` | Redraw the Octicon PNGs in `assets/emojis/` |
+| `pnpm emojis:sync` | Upload those icons as the bot's application emojis |
 
 ## Guidelines
 

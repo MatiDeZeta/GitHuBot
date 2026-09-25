@@ -191,7 +191,16 @@ Resolution order: the repository's own style → the server default → `DEFAULT
 
 **Density** — `/repo style owner/repo mode:<detailed\|compact>`. Detailed shows avatars, quoted bodies, labelled fields, media galleries and relative timestamps; compact is one line plus link buttons.
 
-**Icons** — every glyph is a Unicode default. Override any of them with custom application emojis:
+**Icons** — GitHuBot ships GitHub's own [Octicons](https://primer.style/octicons) as coloured icons (merge, PR, CI status, severity …). Upload them once as the bot's application emojis and it uses them everywhere instead of Unicode:
+
+```bash
+pnpm emojis:sync                                        # from a checkout (reads .env)
+docker compose exec githubot node dist/tools/sync-emojis.js   # Docker
+```
+
+Or set `EMOJI_SYNC=true` to upload any missing ones at startup — handy on Railway. Application emojis belong to the bot, so they work in every server without using a server's emoji slots. Without them the Unicode defaults are used.
+
+Override individual icons with your own emojis; these win over the bundled set:
 
 ```
 EMOJI_OVERRIDES={"push":"<:push:123456789012345678>","merged":"<:merged:123456789012345678>"}
