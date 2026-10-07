@@ -37,15 +37,15 @@
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.5.14",
+		"@biomejs/biome": "2.5.15",
 		"@primer/octicons": "19.38.0",
 		"@resvg/resvg-wasm": "2.6.2",
 		"@types/better-sqlite3": "^9.6.0",
-		"@types/node": "^24.13.6",
+		"@types/node": "^24.19.1",
 		"drizzle-kit": "^0.31.11",
 		"linguist-languages": "9.5.0",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2",
-		"vitest": "^5.0.1"
+		"vitest": "^5.0.3"
 	}
 }
