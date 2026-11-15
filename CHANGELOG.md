@@ -5,6 +5,64 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] — 2026-11-15
+
+A security and reliability release. No migrations, no new environment variables,
+and no configuration changes are needed.
+
+### Security
+
+- **A branch or author filter could freeze the bot for every server.** Filter
+  patterns were compiled to regular expressions, and one with several wildcards
+  (`*a*a*a*a*a*a*a*b`) backtracks so badly that matching it against a single
+  120-character branch name ran for over two minutes, blocking every other
+  delivery and command meanwhile. Anyone with Manage Server could set such a
+  filter and then send themselves the push. Patterns are now matched by a linear
+  walk; `*` and `?` behave exactly as before.
+- **Unknown and unsigned deliveries are refused before their body is read.** The
+  tracking id, the GitHub headers and the presence of a signature are now checked
+  from the URL and headers alone — after the rate limit, before parsing — so a
+  caller who does not know a tracking id can no longer make the server buffer up
+  to `WEBHOOK_BODY_LIMIT` (25 MiB) per request only to be answered 404.
+- **Dependency advisories cleared.** `pnpm audit` reported 28 advisories against
+  the 1.3.0 lockfile, six of them high; it now reports none. Fixed by `fastify`
+  5.12.8 (DoS on an unhandled exception, header-validation bypass), `zod` 4.6.7
+  (memory exhaustion on oversized collections), `undici` 6.29.1 (TLS certificate
+  validation bypass and three DoS issues, via discord.js), `fast-uri` 3.1.9 and
+  4.2.3, `ip-address` 10.7.6, and — test tooling only — `vitest` 5.1.0, `vite`
+  8.3.6 and `source-map-js` 1.2.2. Nothing installed is less than ten days old.
+
+### Fixed
+
+- **The dashboard never came up outside tests.** Its routes were only registered
+  if the database and Discord client already existed when the HTTP server was
+  created — but the server is created first, so that it can answer `/health`
+  during boot, and Fastify accepts no routes after it starts listening. A fully
+  configured `DASHBOARD_ENABLED=true` deployment therefore served 404 on
+  `/dashboard`. The routes are now registered up front and answer 503 with
+  `Retry-After` until the bot is ready (or if the Discord login failed).
+- **A Discord gateway error could crash the process.** The client had no `error`
+  listener, and Node throws an `error` event nobody listens for. Client and shard
+  errors are now logged and left to discord.js to recover from.
+- **Dashboard sign-in could hang forever.** The calls to Discord's OAuth endpoints
+  had no timeout; they now give up after 10 seconds.
+- **Shutdown is bounded and reports failure.** A second signal no longer starts a
+  second shutdown, a close that hangs is cut off after 10 seconds, and an error
+  while closing exits non-zero instead of 0.
+
+### Changed
+
+- Routine updates: `discord.js` 14.28.1, `drizzle-orm` 0.45.4, `pino` 10.4.0,
+  `pino-pretty` 13.2.0, `@fastify/rate-limit` 11.2.2, `@biomejs/biome` 2.6.4.
+  Biome 2.6 began checking Markdown and YAML; it is scoped back to code and JSON
+  so the docs are not reformatted wholesale.
+- `.gitignore` and `.dockerignore` now cover any `*.env` file, not only `.env`
+  and `.env.*`, so a `stack.env` or `prod.env` holding real credentials cannot
+  be committed or sent to the Docker build context by accident.
+- `vite` is now an explicit dev dependency. It was installed implicitly as
+  vitest's peer, which left it stuck on a vulnerable release that `pnpm update`
+  would not move.
+
 ## [1.3.0] — 2026-09-25
 
 Migrations `0004` and `0005` run automatically; each adds nullable columns only.
@@ -412,7 +470,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.3.1
 [1.3.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.3.0
 [1.2.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.2.1
 [1.2.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.2.0
