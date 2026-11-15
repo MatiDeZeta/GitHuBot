@@ -4,6 +4,7 @@ import type { Client } from "discord.js";
 import type { FastifyError, FastifyReply, FastifyRequest } from "fastify";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
+	type DashboardEnv,
 	type Env,
 	isDashboardConfigured,
 	isFullyConfigured,
@@ -13,7 +14,7 @@ import {
 import { githubEventToType } from "../config/events.js";
 import type { Logger } from "../config/logger.js";
 import { tryDecryptSecret } from "../crypto/secrets.js";
-import { registerDashboard } from "../dashboard/routes.js";
+import { type DashboardContext, registerDashboard } from "../dashboard/routes.js";
 import { notConfiguredPage } from "../dashboard/views.js";
 import type { RepoRepository, TrackedRepo } from "../db/types.js";
 import { type DispatchContext, type DispatchOutcome, dispatchEvent } from "../delivery/dispatch.js";
@@ -35,6 +36,8 @@ export interface ServerContext {
 declare module "fastify" {
 	interface FastifyRequest {
 		rawBody?: string;
+		/** Set by the webhook route's pre-body check, so the handler does not look it up twice. */
+		tracked: TrackedRepo | null;
 	}
 }
 
@@ -104,17 +107,14 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 	// Off unless explicitly enabled AND given OAuth credentials, so a default
 	// deployment serves no dashboard route at all — not even a sign-in page.
 	if (isDashboardConfigured(ctx.env)) {
-		if (ctx.repository && ctx.masterKey && ctx.discord) {
-			await registerDashboard(app, {
-				env: ctx.env,
-				logger: ctx.logger,
-				repository: ctx.repository,
-				masterKey: ctx.masterKey,
-				discord: ctx.discord,
-				renderDefaults: ctx.renderDefaults,
-			});
-			ctx.logger.info({ baseUrl: ctx.env.DASHBOARD_BASE_URL }, "Dashboard enabled");
-		}
+		// The server is created — and starts answering /health — before the database
+		// and Discord client exist, so the routes are registered now and read those
+		// from `ctx` per request. Registering only once they were set never happened:
+		// they are still null here, and Fastify takes no new routes after listening.
+		await registerDashboard(app, liveDashboardContext(ctx, ctx.env), () =>
+			Boolean(ctx.ready && ctx.repository && ctx.masterKey && ctx.discord),
+		);
+		ctx.logger.info({ baseUrl: ctx.env.DASHBOARD_BASE_URL }, "Dashboard enabled");
 	} else if (ctx.env.DASHBOARD_ENABLED) {
 		// Enabled but incomplete: say why on the route instead of 404ing silently.
 		const missing = missingDashboardKeys(ctx.env);
@@ -152,9 +152,20 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 			},
 		);
 
+		hooks.decorateRequest("tracked", null);
+
 		hooks.post<{ Params: { trackingId: string } }>(
 			"/webhooks/github/:trackingId",
 			{
+				// Everything that can be decided from the URL and headers is decided here,
+				// before the body is read: an unauthenticated caller who does not know a
+				// tracking id can no longer make the server buffer WEBHOOK_BODY_LIMIT bytes
+				// per request just to be told 404. `preParsing` rather than `onRequest`
+				// so the rate limit has already counted the request — the lookup below
+				// must not be reachable faster than the limit allows.
+				preParsing: async (request, reply) => {
+					await preflightWebhook(request, reply, ctx);
+				},
 				config: {
 					rateLimit: {
 						// GitHub delivers from a small pool of addresses and never retries a
@@ -171,10 +182,76 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 	return app;
 }
 
+/**
+ * A dashboard context whose stores resolve on access rather than at registration.
+ * The dashboard's own readiness hook answers 503 until all three exist, so these
+ * getters only throw if that guard is bypassed.
+ */
+function liveDashboardContext(ctx: ServerContext, env: DashboardEnv): DashboardContext {
+	const need = <T>(value: T | null, name: string): T => {
+		if (value === null) throw new Error(`Dashboard used before ${name} was ready`);
+		return value;
+	};
+	return {
+		env,
+		logger: ctx.logger,
+		renderDefaults: ctx.renderDefaults,
+		get repository() {
+			return need(ctx.repository, "the database");
+		},
+		get masterKey() {
+			return need(ctx.masterKey, "the master key");
+		},
+		get discord() {
+			return need(ctx.discord, "the Discord client");
+		},
+	};
+}
+
 function badRequest(message: string): FastifyError {
 	const error = new Error(message) as FastifyError;
 	error.statusCode = 400;
 	return error;
+}
+
+/**
+ * Rejects a delivery that cannot succeed whatever its body says. Sending a reply
+ * ends the request; otherwise it continues to body parsing with `tracked` set.
+ */
+async function preflightWebhook(
+	request: FastifyRequest<{ Params: { trackingId: string } }>,
+	reply: FastifyReply,
+	ctx: ServerContext,
+): Promise<void> {
+	if (!ctx.ready || !ctx.repository || !ctx.masterKey || !ctx.discord) {
+		reply.code(503).send({
+			error: "Bot not fully configured",
+			missing: missingConfigKeys(ctx.env),
+		});
+		return;
+	}
+
+	if (!header(request, "x-github-delivery") || !header(request, "x-github-event")) {
+		reply.code(400).send({ error: "Missing GitHub webhook headers" });
+		return;
+	}
+
+	const { trackingId } = request.params;
+	const tracked = await ctx.repository.findByTrackingId(trackingId);
+	if (!tracked) {
+		ctx.logger.warn({ trackingId }, "Unknown tracking id");
+		reply.code(404).send({ error: "Unknown webhook" });
+		return;
+	}
+
+	// Every tracked repository has a secret, so an unsigned delivery is never valid.
+	if (!header(request, "x-hub-signature-256")) {
+		ctx.logger.warn({ trackingId }, "Unsigned webhook delivery");
+		reply.code(401).send({ error: "Invalid signature" });
+		return;
+	}
+
+	request.tracked = tracked;
 }
 
 async function handleWebhook(
@@ -182,11 +259,12 @@ async function handleWebhook(
 	reply: FastifyReply,
 	ctx: ServerContext,
 ): Promise<FastifyReply> {
-	if (!ctx.ready || !ctx.repository || !ctx.masterKey || !ctx.discord) {
-		return reply.code(503).send({
-			error: "Bot not fully configured",
-			missing: missingConfigKeys(ctx.env),
-		});
+	const tracked = request.tracked;
+	const deliveryId = header(request, "x-github-delivery");
+	const eventName = header(request, "x-github-event");
+	// The preflight hook established all of these; this only narrows the types.
+	if (!ctx.repository || !ctx.masterKey || !ctx.discord || !tracked || !deliveryId || !eventName) {
+		return reply.code(503).send({ error: "Bot not fully configured" });
 	}
 
 	const repository = ctx.repository;
@@ -194,20 +272,8 @@ async function handleWebhook(
 	const discord = ctx.discord;
 
 	const { trackingId } = request.params;
-	const deliveryId = header(request, "x-github-delivery");
-	const eventName = header(request, "x-github-event");
 	const signature = header(request, "x-hub-signature-256");
 	const rawBody = request.rawBody ?? "";
-
-	if (!deliveryId || !eventName) {
-		return reply.code(400).send({ error: "Missing GitHub webhook headers" });
-	}
-
-	const tracked = await repository.findByTrackingId(trackingId);
-	if (!tracked) {
-		ctx.logger.warn({ trackingId }, "Unknown tracking id");
-		return reply.code(404).send({ error: "Unknown webhook" });
-	}
 
 	const secret = tryDecryptSecret(tracked.encryptedSecret, masterKey);
 	if (secret === null) {

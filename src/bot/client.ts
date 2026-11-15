@@ -79,6 +79,14 @@ export function createBot(ctx: BotContext): Client {
 		});
 	});
 
+	// An EventEmitter with no `error` listener throws instead, so a gateway hiccup
+	// that discord.js would have recovered from took the whole process down.
+	client.on(Events.Error, (err) => ctx.logger.error({ err }, "Discord client error"));
+	client.on(Events.ShardError, (err, shardId) =>
+		ctx.logger.error({ err, shardId }, "Discord gateway connection error"),
+	);
+	client.on(Events.Warn, (message) => ctx.logger.warn({ message }, "Discord client warning"));
+
 	// Removal starts the grace period before a server's data is purged; coming back
 	// cancels it. An outage arrives as an *unavailable* guild, which is not a removal.
 	client.on(Events.GuildDelete, (guild) => {

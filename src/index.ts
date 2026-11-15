@@ -14,6 +14,8 @@ import { parseMasterKey } from "./crypto/secrets.js";
 import { createDb, type DbHandle, migrate, startHousekeeping } from "./db/index.js";
 import { createServer, type ServerContext } from "./server/app.js";
 
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+
 function renderDefaultsFrom(env: Env): BotContext["renderDefaults"] {
 	return {
 		locale: env.DEFAULT_LOCALE,
@@ -69,15 +71,31 @@ async function main(): Promise<void> {
 		stopHousekeeping = startHousekeeping(started.db.repository, logger);
 	}
 
+	let shuttingDown = false;
 	const shutdown = async (signal: string) => {
+		// A second Ctrl-C, or SIGTERM arriving during a SIGINT, must not close twice.
+		if (shuttingDown) return;
+		shuttingDown = true;
 		logger.info({ signal }, "Shutting down");
+
+		// A hung socket or database must not outlive the platform's own kill timeout
+		// with the process half-closed; unref'd so a clean close exits immediately.
+		setTimeout(() => {
+			logger.error("Shutdown timed out; exiting anyway");
+			process.exit(1);
+		}, SHUTDOWN_TIMEOUT_MS).unref();
+
+		let exitCode = 0;
 		try {
 			stopHousekeeping?.();
 			await server.close();
-			bot?.destroy();
+			await bot?.destroy();
 			await db?.close();
+		} catch (err) {
+			logger.error({ err }, "Error during shutdown");
+			exitCode = 1;
 		} finally {
-			process.exit(0);
+			process.exit(exitCode);
 		}
 	};
 

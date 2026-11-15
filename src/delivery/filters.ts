@@ -94,18 +94,45 @@ export function isIgnoredActor(ignored: string[], payload: Payload): boolean {
 	return false;
 }
 
-/** Supports `*` (any run of characters) and `?` (single character). */
+/**
+ * Supports `*` (any run of characters) and `?` (single character), ignoring case.
+ *
+ * Matched by hand rather than compiled to a RegExp: patterns are written by server
+ * admins and the value is a branch or login from a webhook, and `*a*a*a*…b` as a
+ * regex backtracks polynomially — one such filter plus one long branch name
+ * stalled the event loop, and with it every server's deliveries, for minutes.
+ * This walk is O(pattern × value).
+ */
 export function matchesGlob(pattern: string, value: string): boolean {
-	const trimmed = pattern.trim();
-	if (!trimmed) return false;
-	if (trimmed === "*") return true;
+	const glob = pattern.trim().toLowerCase();
+	if (!glob) return false;
+	const text = value.toLowerCase();
 
-	const escaped = trimmed
-		.toLowerCase()
-		.replace(/[.+^${}()|[\]\\]/g, "\\$&")
-		.replace(/\*/g, ".*")
-		.replace(/\?/g, ".");
-	return new RegExp(`^${escaped}$`).test(value.toLowerCase());
+	let g = 0;
+	let t = 0;
+	/** Position of the last `*` seen, and the text index it currently absorbs up to. */
+	let star = -1;
+	let mark = 0;
+
+	while (t < text.length) {
+		if (glob[g] === "*") {
+			star = g;
+			mark = t;
+			g += 1;
+		} else if (g < glob.length && (glob[g] === "?" || glob[g] === text[t])) {
+			g += 1;
+			t += 1;
+		} else if (star !== -1) {
+			// Mismatch after a `*`: let that star swallow one more character and retry.
+			mark += 1;
+			t = mark;
+			g = star + 1;
+		} else {
+			return false;
+		}
+	}
+	while (glob[g] === "*") g += 1;
+	return g === glob.length;
 }
 
 /** Splits the comma/newline separated text used by the filters modal. */

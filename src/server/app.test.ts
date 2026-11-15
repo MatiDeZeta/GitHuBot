@@ -210,6 +210,58 @@ describe("webhook endpoint", () => {
 		expect(res.statusCode).toBe(404);
 	});
 
+	it("404s an unknown tracking id without reading the body", async () => {
+		const res = await app.inject({
+			method: "POST",
+			url: "/webhooks/github/not-a-real-tracking-id",
+			headers: {
+				"content-type": "application/json",
+				"x-github-event": "push",
+				"x-github-delivery": randomUUID(),
+				"x-hub-signature-256": "sha256=00",
+			},
+			// Parsing this would be a 400, so a 404 shows the body was never looked at.
+			payload: "{not json",
+		});
+		expect(res.statusCode).toBe(404);
+	});
+
+	it("401s an unsigned delivery without reading the body", async () => {
+		const res = await post("{not json", {
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+		});
+		expect(res.statusCode).toBe(401);
+	});
+
+	it("rejects an oversized body for a known webhook before parsing it", async () => {
+		resetEnvCache();
+		const small = loadEnv({ NODE_ENV: "test", WEBHOOK_BODY_LIMIT: "1024" } as NodeJS.ProcessEnv);
+		const limited = await createServer({
+			env: small,
+			logger: createLogger(small),
+			repository: db.repository,
+			masterKey,
+			discord: { channels: { fetch: async () => null } } as unknown as Client,
+			ready: true,
+			renderDefaults: { locale: "en", theme: "default", mode: "detailed" },
+		});
+		const body = JSON.stringify({ padding: "x".repeat(4096) });
+		const res = await limited.inject({
+			method: "POST",
+			url: `/webhooks/github/${TRACKING_ID}`,
+			headers: {
+				"content-type": "application/json",
+				"x-github-event": "push",
+				"x-github-delivery": randomUUID(),
+				"x-hub-signature-256": sign(body),
+			},
+			payload: body,
+		});
+		expect(res.statusCode).toBe(413);
+		await limited.close();
+	});
+
 	it("400s when GitHub headers are missing", async () => {
 		const body = pushBody();
 		const res = await post(body, { "x-hub-signature-256": sign(body) });
@@ -357,29 +409,14 @@ describe("metrics endpoint", () => {
 					"x-github-event": "push",
 					"x-github-delivery": randomUUID(),
 				},
-				// Unparseable on purpose: a 429 here proves the limit ran first.
 				payload: "{not json",
 			});
 
-		expect((await deliver()).statusCode).toBe(400);
-		expect((await deliver()).statusCode).toBe(400);
+		// This server has no database, so a counted request ends as 503; the third
+		// never gets that far.
+		expect((await deliver()).statusCode).toBe(503);
+		expect((await deliver()).statusCode).toBe(503);
 		expect((await deliver()).statusCode).toBe(429);
-		await app.close();
-	});
-
-	it("rejects an oversized body before parsing it", async () => {
-		const app = await serverWith({ WEBHOOK_BODY_LIMIT: "1024" });
-		const res = await app.inject({
-			method: "POST",
-			url: "/webhooks/github/anything",
-			headers: {
-				"content-type": "application/json",
-				"x-github-event": "push",
-				"x-github-delivery": randomUUID(),
-			},
-			payload: JSON.stringify({ padding: "x".repeat(4096) }),
-		});
-		expect(res.statusCode).toBe(413);
 		await app.close();
 	});
 });

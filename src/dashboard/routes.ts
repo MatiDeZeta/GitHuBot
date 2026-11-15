@@ -60,6 +60,8 @@ const CSP = [
 export async function registerDashboard(
 	app: FastifyInstance,
 	ctx: DashboardContext,
+	/** False while the database or Discord client is still starting (or failed to). */
+	isReady: () => boolean = () => true,
 ): Promise<void> {
 	// Cookies are only marked Secure on https, otherwise a local http deployment
 	// would silently never receive them back.
@@ -78,6 +80,17 @@ export async function registerDashboard(
 				done(null, Object.fromEntries(new URLSearchParams(String(body))));
 			},
 		);
+
+		// Before anything touches `ctx`: during boot, or after a failed Discord login,
+		// there is nothing to show and no session key to verify a cookie with.
+		dash.addHook("onRequest", async (_request, reply) => {
+			if (isReady()) return;
+			return reply
+				.code(503)
+				.header("content-type", HTML)
+				.header("retry-after", "15")
+				.send(errorPage(503, "GitHuBot is still starting. Try again in a moment."));
+		});
 
 		dash.addHook("onSend", async (_request, reply, payload) => {
 			reply.header("content-security-policy", CSP);

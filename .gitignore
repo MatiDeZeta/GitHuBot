@@ -6,6 +6,8 @@ data/
 *.db-journal
 .env
 .env.local
+# Any other local env file (stack.env, prod.env, …) holds real credentials too.
+*.env
 *.log
 .DS_Store
 .turbo/

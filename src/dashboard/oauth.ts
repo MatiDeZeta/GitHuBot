@@ -6,6 +6,12 @@ const MANAGE_GUILD = 1n << 5n;
 
 const DISCORD_API = "https://discord.com/api/v10";
 
+/**
+ * `fetch` has no timeout of its own. Without one, a stalled Discord API held the
+ * sign-in request — and its socket — open indefinitely.
+ */
+const DISCORD_TIMEOUT_MS = 10_000;
+
 export interface DiscordUser {
 	id: string;
 	username: string;
@@ -42,6 +48,7 @@ export function authorizeUrl(env: DashboardEnv, state: string): string {
 async function exchangeCode(env: DashboardEnv, code: string): Promise<string> {
 	const response = await fetch(`${DISCORD_API}/oauth2/token`, {
 		method: "POST",
+		signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
 		headers: { "content-type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
 			client_id: env.DISCORD_CLIENT_ID,
@@ -65,6 +72,7 @@ async function exchangeCode(env: DashboardEnv, code: string): Promise<string> {
 
 async function fetchJson(path: string, accessToken: string): Promise<unknown> {
 	const response = await fetch(`${DISCORD_API}${path}`, {
+		signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
 		headers: { authorization: `Bearer ${accessToken}` },
 	});
 	if (!response.ok) throw new Error(`Discord ${path} failed with ${response.status}`);

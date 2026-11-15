@@ -10,7 +10,7 @@ import { DEFAULT_ENABLED_EVENTS } from "../config/events.js";
 import { createLogger } from "../config/logger.js";
 import { encryptSecret, parseMasterKey } from "../crypto/secrets.js";
 import { createDb, type DbHandle, migrate } from "../db/index.js";
-import { createServer } from "../server/app.js";
+import { createServer, type ServerContext } from "../server/app.js";
 import {
 	cookieName,
 	createCsrfToken,
@@ -170,6 +170,42 @@ describe("dashboard routes", () => {
 		await db.close();
 		rmSync(dir, { recursive: true, force: true });
 		resetEnvCache();
+	});
+
+	it("serves the dashboard once the stack that boots after the server is ready", async () => {
+		// Production order: the server is created first, with nothing started yet.
+		resetEnvCache();
+		const parsed = loadEnv(DASHBOARD_ENV);
+		const ctx: ServerContext = {
+			env: parsed,
+			logger: createLogger(parsed),
+			repository: null,
+			masterKey: null,
+			discord: null,
+			ready: false,
+			renderDefaults: { locale: "en", theme: "default", mode: "detailed" },
+		};
+		const late = await createServer(ctx);
+
+		const starting = await late.inject({ method: "GET", url: "/dashboard" });
+		expect(starting.statusCode).toBe(503);
+		expect(starting.headers["retry-after"]).toBe("15");
+		expect(starting.headers["content-security-policy"]).toContain("script-src 'none'");
+
+		ctx.repository = db.repository;
+		ctx.masterKey = masterKey;
+		ctx.discord = { channels: { fetch: async () => null } } as unknown as Client;
+		ctx.ready = true;
+
+		const signIn = await late.inject({ method: "GET", url: "/dashboard" });
+		expect(signIn.statusCode).toBe(200);
+		const page = await late.inject({
+			method: "GET",
+			url: `/dashboard/g/${GUILD}`,
+			headers: { cookie: cookieFor([GUILD]) },
+		});
+		expect(page.statusCode).toBe(200);
+		await late.close();
 	});
 
 	it("serves no dashboard route at all when disabled", async () => {
@@ -421,7 +457,12 @@ describe("dashboard routes", () => {
 		const res = await app.inject({
 			method: "POST",
 			url: "/webhooks/github/track-1",
-			headers: { "content-type": "application/x-www-form-urlencoded" },
+			headers: {
+				"content-type": "application/x-www-form-urlencoded",
+				"x-github-event": "push",
+				"x-github-delivery": "5c2b7e52-0d55-4d6f-9a56-6f2f4e3f9a10",
+				"x-hub-signature-256": "sha256=00",
+			},
 			payload: "a=1",
 		});
 		expect(res.statusCode).toBe(400);
