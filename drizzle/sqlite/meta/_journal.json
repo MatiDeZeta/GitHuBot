@@ -50,6 +50,13 @@
 			"when": 1720000000006,
 			"tag": "0006_delivery_log",
 			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "6",
+			"when": 1720000000007,
+			"tag": "0007_audit_and_sessions",
+			"breakpoints": true
 		}
 	]
 }

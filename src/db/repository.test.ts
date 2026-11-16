@@ -309,3 +309,105 @@ describe("delivery log", () => {
 		expect(await db.repository.listDeliveryLog(["t3"], { limit: 10 })).toEqual([]);
 	});
 });
+
+describe("change history and ended sessions", () => {
+	let dir: string;
+	let db: DbHandle;
+
+	const change = (guildId: string, action: string) =>
+		db.repository.recordAudit({
+			guildId,
+			userId: "1",
+			username: "ada",
+			source: "dashboard",
+			action,
+			target: "acme/app",
+			detail: null,
+		});
+
+	beforeEach(async () => {
+		dir = mkdtempSync(join(tmpdir(), "githubot-audit-"));
+		const url = `file:${join(dir, "test.db")}`;
+		await migrate(url);
+		db = createDb(url);
+	});
+
+	afterEach(async () => {
+		await db.close();
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("lists a server's changes newest first, pages backwards and keeps servers apart", async () => {
+		await change("g1", "repo.added");
+		await change("g1", "repo.paused");
+		await change("g1", "repo.resumed");
+		await change("g2", "repo.removed");
+
+		const first = await db.repository.listAudit("g1", { limit: 2 });
+		expect(first.map((row) => row.action)).toEqual(["repo.resumed", "repo.paused"]);
+		const older = await db.repository.listAudit("g1", { limit: 2, before: first.at(-1)?.id });
+		expect(older.map((row) => row.action)).toEqual(["repo.added"]);
+		expect(older[0]).toMatchObject({ userId: "1", username: "ada", target: "acme/app" });
+		expect((await db.repository.listAudit("g2", { limit: 5 })).length).toBe(1);
+	});
+
+	it("prunes changes older than the cutoff", async () => {
+		await change("g1", "repo.added");
+		await db.repository.pruneAudit(new Date(Date.now() - 60_000));
+		expect((await db.repository.listAudit("g1", { limit: 5 })).length).toBe(1);
+		await db.repository.pruneAudit(new Date(Date.now() + 60_000));
+		expect(await db.repository.listAudit("g1", { limit: 5 })).toEqual([]);
+	});
+
+	it("deletes a server's history when the server is purged", async () => {
+		await db.repository.ensureGuild("g1");
+		await db.repository.ensureGuild("g2");
+		await change("g1", "repo.added");
+		await change("g2", "repo.added");
+		await db.repository.setGuildLeft("g1", new Date(Date.now() - 60_000));
+		await db.repository.purgeGuildsLeftBefore(new Date());
+		expect(await db.repository.listAudit("g1", { limit: 5 })).toEqual([]);
+		expect((await db.repository.listAudit("g2", { limit: 5 })).length).toBe(1);
+	});
+
+	it("ends one session by id and leaves the others", async () => {
+		const later = new Date(Date.now() + 60_000);
+		const a = { sid: "a", userId: "1", issuedAt: Date.now() };
+		const b = { sid: "b", userId: "1", issuedAt: Date.now() };
+		expect(await db.repository.isSessionRevoked(a)).toBe(false);
+		await db.repository.revokeSession("a", later);
+		await db.repository.revokeSession("a", later);
+		expect(await db.repository.isSessionRevoked(a)).toBe(true);
+		expect(await db.repository.isSessionRevoked(b)).toBe(false);
+	});
+
+	it("ends every earlier session of a user, not later ones or other users'", async () => {
+		const at = Date.now();
+		const later = new Date(at + 60_000);
+		await db.repository.revokeUserSessions("1", new Date(at), later);
+		expect(await db.repository.isSessionRevoked({ sid: "x", userId: "1", issuedAt: at - 1 })).toBe(
+			true,
+		);
+		expect(await db.repository.isSessionRevoked({ sid: "x", userId: "1", issuedAt: at + 1 })).toBe(
+			false,
+		);
+		expect(await db.repository.isSessionRevoked({ sid: "x", userId: "2", issuedAt: at - 1 })).toBe(
+			false,
+		);
+
+		// A second click moves the line forward rather than failing on the existing row.
+		await db.repository.revokeUserSessions("1", new Date(at + 10), later);
+		expect(await db.repository.isSessionRevoked({ sid: "x", userId: "1", issuedAt: at + 1 })).toBe(
+			true,
+		);
+	});
+
+	it("forgets ended sessions once they would have expired anyway", async () => {
+		await db.repository.revokeSession("a", new Date(Date.now() - 1_000));
+		await db.repository.revokeSession("b", new Date(Date.now() + 60_000));
+		await db.repository.pruneRevocations(new Date());
+		const ref = (sid: string) => ({ sid, userId: "1", issuedAt: Date.now() });
+		expect(await db.repository.isSessionRevoked(ref("a"))).toBe(false);
+		expect(await db.repository.isSessionRevoked(ref("b"))).toBe(true);
+	});
+});

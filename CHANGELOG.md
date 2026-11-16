@@ -5,6 +5,38 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-11-16
+
+Migration `0007` runs automatically and adds two tables. One new optional
+environment variable, `MAX_REPOS_PER_SERVER`. **Everyone signed in to the dashboard
+has to sign in once more** after upgrading.
+
+### Added
+
+- **Change history.** A History page per server shows who changed what and when —
+  adding or removing a repository, events, filters, channels, mentions, appearance,
+  pausing, test messages, revealing or rotating a secret, server settings — whether it
+  was done in the dashboard or with `/repo`. It records the person, the change and the
+  repository, never a secret or a setting's contents; entries are kept for 90 days and
+  deleted with the server's data.
+- **Sign out everywhere.** A button under Settings ends every dashboard sign-in of
+  yours, on any browser or device.
+- **Private instance, documented as a mode.** With `DISCORD_ALLOWED_USER_ID` set, the
+  sign-in page now says the instance is private, the bot logs the mode at startup, and
+  it leaves a server it is invited to when that account is not a member of it. The
+  check runs only at the invite and only acts on Discord's explicit answer. See
+  "Private instance" in the README. Without the variable nothing changes.
+- **`MAX_REPOS_PER_SERVER`** (default 100) caps how many repositories one server can
+  track, in the dashboard and in `/repo add`.
+
+### Security
+
+- **Signing out now ends the session on the server.** Sessions were purely signed
+  cookies, so signing out only cleared the browser's copy: a cookie copied beforehand
+  kept working until it expired, up to `DASHBOARD_SESSION_HOURS` later. Each session
+  now has an id that sign-out records as ended. Cookies issued by earlier versions
+  have no id and are refused, which is why one new sign-in is needed.
+
 ## [1.4.2] — 2026-11-16
 
 Fixes a regression in 1.4.1. No migrations, no new environment variables.
@@ -548,7 +580,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.0
 [1.4.2]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.2
 [1.4.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.1
 [1.4.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.0

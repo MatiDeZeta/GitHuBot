@@ -102,6 +102,41 @@ export const deliveryLog = pgTable(
 	],
 );
 
+/** Who changed what, for the dashboard's history page. Deleted with the server. */
+export const auditLog = pgTable(
+	"audit_log",
+	{
+		id: bigserial("id", { mode: "number" }).primaryKey(),
+		guildId: text("guild_id").notNull(),
+		userId: text("user_id").notNull(),
+		username: text("username"),
+		source: text("source").notNull(),
+		action: text("action").notNull(),
+		target: text("target"),
+		detail: text("detail"),
+		createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+	},
+	(table) => [
+		index("audit_log_guild_idx").on(table.guildId, table.id),
+		index("audit_log_created_at_idx").on(table.createdAt),
+	],
+);
+
+/**
+ * Dashboard sign-ins that were ended before they expired. `key` is `s:<session id>`
+ * for one sign-out, or `u:<user id>` for "sign out everywhere", where `revokedAt`
+ * is the moment every earlier session of that user stopped counting.
+ */
+export const sessionRevocations = pgTable(
+	"session_revocations",
+	{
+		key: text("key").primaryKey(),
+		revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }).notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+	},
+	(table) => [index("session_revocations_expires_idx").on(table.expiresAt)],
+);
+
 export type TrackedRepoRow = typeof trackedRepos.$inferSelect;
 export type NewTrackedRepo = typeof trackedRepos.$inferInsert;
 export type GuildRow = typeof guilds.$inferSelect;

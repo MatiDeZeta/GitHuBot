@@ -519,6 +519,8 @@ export const en = {
 	"repo.add.alreadyTracked":
 		"`{repo}` is already tracked. Use `/repo webhook-info` or `/repo remove` first.",
 	"repo.add.noChannel": "Could not resolve a target channel.",
+	"repo.add.limit":
+		"This server already tracks {limit} repositories, the most this instance allows. Remove one with `/repo remove` first.",
 	"repo.add.saveFailed": "Failed to save the repository. It may already be tracked.",
 	"repo.add.privateWarning":
 		"_Note: could not find a **public** repo `{repo}`. If it is private, that is fine — continue with webhook setup._",

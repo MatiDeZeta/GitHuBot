@@ -1,12 +1,17 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 /**
- * Stateless signed-cookie sessions. The payload is readable by the browser but not
- * forgeable, which is all the dashboard needs: it carries an identity, never a
- * capability, and every request re-checks guild access against Discord's own answer
- * stored at sign-in time.
+ * Signed-cookie sessions. The payload is readable by the browser but not forgeable:
+ * it carries an identity, never a capability, and every request re-checks with
+ * Discord that the permission is still held. The server stores nothing about a
+ * session until it is ended early — signing out records its id, so a copy of the
+ * cookie stops working too.
  */
 export interface DashboardSession {
+	/** Names this one sign-in, so signing out can end it on the server too. */
+	sid: string;
+	/** When it was issued; "sign out everywhere" ends every session older than its click. */
+	issuedAt: number;
 	userId: string;
 	username: string;
 	avatarUrl: string | null;
@@ -40,6 +45,10 @@ function signingKey(masterKey: Buffer): Buffer {
 
 function sign(payload: string, masterKey: Buffer): string {
 	return createHmac("sha256", signingKey(masterKey)).update(payload).digest("base64url");
+}
+
+export function createSessionId(): string {
+	return randomBytes(12).toString("base64url");
 }
 
 export function createCsrfToken(): string {
@@ -105,6 +114,10 @@ function isSession(value: unknown): value is DashboardSession {
 	if (!value || typeof value !== "object") return false;
 	const candidate = value as Record<string, unknown>;
 	return (
+		// A cookie from before sessions had these cannot be revoked, so it is not
+		// accepted: its holder signs in once more.
+		typeof candidate.sid === "string" &&
+		typeof candidate.issuedAt === "number" &&
 		typeof candidate.userId === "string" &&
 		typeof candidate.username === "string" &&
 		typeof candidate.csrfToken === "string" &&

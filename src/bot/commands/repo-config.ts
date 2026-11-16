@@ -40,6 +40,7 @@ import {
 	ephemeralV2,
 	guildContext,
 	isAllowedUser,
+	recordChange,
 	relative,
 	requireTrackedRepo,
 	slugOf,
@@ -73,6 +74,7 @@ export async function handlePause(
 	}
 
 	await ctx.repository.setPaused(tracked.guildId, tracked.owner, tracked.repo, paused);
+	await recordChange(ctx, interaction, paused ? "repo.paused" : "repo.resumed", tracked);
 	await interaction.reply(
 		ephemeralText(
 			t(locale, paused ? "repo.pause.done" : "repo.resume.done", { repo: slugOf(tracked) }),
@@ -157,6 +159,7 @@ export async function handleRoute(
 	}
 
 	await ctx.repository.updateRoutes(tracked.guildId, tracked.owner, tracked.repo, routes);
+	await recordChange(ctx, interaction, "repo.routing", tracked, category);
 	if (!channel) {
 		await interaction.reply(
 			ephemeralText(
@@ -197,6 +200,7 @@ export async function handleMentions(
 	}
 
 	await ctx.repository.updateMentions(tracked.guildId, tracked.owner, tracked.repo, mentions);
+	await recordChange(ctx, interaction, "repo.mentions", tracked, category);
 	await interaction.reply(
 		ephemeralText(
 			role
@@ -237,6 +241,7 @@ export async function handleStyle(
 		? ((await ctx.repository.updateStyle(tracked.guildId, tracked.owner, tracked.repo, style)) ??
 			tracked)
 		: tracked;
+	if (changed) await recordChange(ctx, interaction, "repo.appearance", tracked);
 
 	const { settings } = await guildContext(ctx, interaction);
 	const effective = renderOptionsFor(updated, settings, ctx.renderDefaults);
@@ -305,7 +310,10 @@ export async function handleServerStyle(
 	else if (isDisplayMode(rawMode)) update.defaultDisplayMode = rawMode;
 
 	const changed = Object.keys(update).length > 0;
-	if (changed) await ctx.repository.updateGuildSettings(guildId, update);
+	if (changed) {
+		await ctx.repository.updateGuildSettings(guildId, update);
+		await recordChange(ctx, interaction, "server.appearance", null);
+	}
 
 	const settings = await ctx.repository.getGuildSettings(guildId);
 	const effective = renderOptionsFor(null, settings, ctx.renderDefaults);
@@ -342,6 +350,7 @@ export async function handleAlerts(
 	if (!guildId) return;
 	const channel = interaction.options.getChannel("channel");
 	await ctx.repository.updateGuildSettings(guildId, { alertChannelId: channel?.id ?? null });
+	await recordChange(ctx, interaction, "server.alerts", null);
 
 	if (!channel) {
 		await interaction.reply(ephemeralText(t(locale, "repo.alerts.cleared")));
@@ -444,6 +453,7 @@ export async function handleLanguage(
 		return;
 	}
 	await ctx.repository.updateGuildSettings(interaction.guildId ?? "", { locale: raw });
+	await recordChange(ctx, interaction, "server.language", null, raw);
 	await interaction.reply(ephemeralText(t(raw, "repo.language.saved", { language: raw })));
 }
 
@@ -555,6 +565,7 @@ export async function handleFiltersModal(
 	};
 
 	await ctx.repository.updateFilters(tracked.guildId, tracked.owner, tracked.repo, filters);
+	await recordChange(ctx, interaction, "repo.filters", tracked);
 	await interaction.reply(
 		ephemeralText(
 			[

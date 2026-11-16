@@ -96,6 +96,8 @@ describe("dashboard session", () => {
 
 	function session(overrides: Partial<DashboardSession> = {}): DashboardSession {
 		return {
+			sid: "session-1",
+			issuedAt: Date.now(),
 			userId: "1",
 			username: "ada",
 			avatarUrl: null,
@@ -191,8 +193,14 @@ describe("dashboard routes", () => {
 		});
 	}
 
-	function cookieFor(guildIds: string[], csrfToken = createCsrfToken()): string {
+	function cookieFor(
+		guildIds: string[],
+		csrfToken = createCsrfToken(),
+		overrides: Partial<DashboardSession> = {},
+	): string {
 		const session: DashboardSession = {
+			sid: randomBytes(8).toString("hex"),
+			issuedAt: Date.now(),
 			userId: "1",
 			username: "ada",
 			avatarUrl: null,
@@ -200,6 +208,7 @@ describe("dashboard routes", () => {
 			guilds: guildIds.map((id) => ({ id, name: "Acme" })),
 			csrfToken,
 			expiresAt: Date.now() + 60_000,
+			...overrides,
 		};
 		return `${COOKIE}=${encodeSession(session, masterKey)}`;
 	}
@@ -557,6 +566,83 @@ describe("dashboard routes", () => {
 		});
 		expect(res.statusCode).toBe(302);
 		expect(readCookie(String(res.headers["set-cookie"]), COOKIE)).toBe("");
+
+		// Clearing the browser's cookie is not enough: a copy taken before the
+		// sign-out must stop working too.
+		const replay = await app.inject({
+			method: "GET",
+			url: `/dashboard/g/${GUILD}`,
+			headers: { cookie },
+		});
+		expect(replay.statusCode).toBe(302);
+		expect(replay.headers.location).toBe("/dashboard");
+	});
+
+	it("signs out every session of the user, and only theirs", async () => {
+		app = await build(DASHBOARD_ENV);
+		const csrf = createCsrfToken();
+		const past = Date.now() - 5_000;
+		const here = cookieFor([GUILD], csrf, { issuedAt: past });
+		const elsewhere = cookieFor([GUILD], createCsrfToken(), { issuedAt: past });
+		const someoneElse = cookieFor([GUILD], createCsrfToken(), { userId: "2", issuedAt: past });
+		const overview = (cookie: string) =>
+			app.inject({ method: "GET", url: `/dashboard/g/${GUILD}`, headers: { cookie } });
+		expect((await overview(elsewhere)).statusCode).toBe(200);
+
+		const forged = await app.inject({
+			method: "POST",
+			url: "/dashboard/logout/all",
+			headers: { cookie: here, ...FORM },
+			payload: "csrf=nope",
+		});
+		expect(forged.statusCode).toBe(403);
+		expect((await overview(elsewhere)).statusCode).toBe(200);
+
+		const res = await app.inject({
+			method: "POST",
+			url: "/dashboard/logout/all",
+			headers: { cookie: here, ...FORM },
+			payload: `csrf=${encodeURIComponent(csrf)}`,
+		});
+		expect(res.statusCode).toBe(302);
+		expect((await overview(here)).statusCode).toBe(302);
+		expect((await overview(elsewhere)).statusCode).toBe(302);
+		expect((await overview(someoneElse)).statusCode).toBe(200);
+
+		// Signing in again afterwards works: only earlier sessions were ended.
+		const fresh = cookieFor([GUILD], createCsrfToken(), { issuedAt: Date.now() + 1_000 });
+		expect((await overview(fresh)).statusCode).toBe(200);
+	});
+
+	it("refuses a session cookie from before sessions could be ended", async () => {
+		app = await build(DASHBOARD_ENV);
+		const legacy = {
+			userId: "1",
+			username: "ada",
+			avatarUrl: null,
+			guildIds: [GUILD],
+			guilds: [{ id: GUILD, name: "Acme" }],
+			csrfToken: createCsrfToken(),
+			expiresAt: Date.now() + 60_000,
+		} as unknown as DashboardSession;
+		const res = await app.inject({
+			method: "GET",
+			url: `/dashboard/g/${GUILD}`,
+			headers: { cookie: `${COOKIE}=${encodeSession(legacy, masterKey)}` },
+		});
+		expect(res.statusCode).toBe(302);
+	});
+
+	it("says so on the sign-in page when the instance is locked to one account", async () => {
+		app = await build(DASHBOARD_ENV);
+		expect((await app.inject({ method: "GET", url: "/dashboard" })).body).not.toContain(
+			"private instance",
+		);
+		await app.close();
+		app = await build({ ...DASHBOARD_ENV, DISCORD_ALLOWED_USER_ID: "777777777777777777" });
+		expect((await app.inject({ method: "GET", url: "/dashboard" })).body).toContain(
+			"private instance",
+		);
 	});
 
 	describe("v2", () => {
@@ -707,6 +793,51 @@ describe("dashboard routes", () => {
 			const slash = await app.inject({ method: "GET", url: "/dashboard/" });
 			expect(slash.statusCode).toBe(302);
 			expect(slash.headers.location).toBe("/dashboard");
+		});
+
+		it("records who changed what on the history page, without the secret", async () => {
+			app = await build(DASHBOARD_ENV);
+			const empty = await get(`/dashboard/g/${GUILD}/history`);
+			expect(empty.statusCode).toBe(200);
+			expect(empty.body).toContain("No changes recorded yet");
+
+			await post(`${repoUrl}/pause`);
+			const rotated = await post(`${repoUrl}/secret/rotate`);
+			const secret = /id="secret" type="password" value="([0-9a-f]{64})"/.exec(rotated.body)?.[1];
+			expect(secret).toBeDefined();
+			await post(`/dashboard/g/${GUILD}/settings/style`, [["theme", "github"]]);
+
+			const page = await get(`/dashboard/g/${GUILD}/history`);
+			expect(page.body).toContain("Paused deliveries");
+			expect(page.body).toContain("Rotated the webhook secret");
+			expect(page.body).toContain("Changed the server&#39;s default appearance");
+			expect(page.body).toContain("ada");
+			expect(page.body).toContain("acme/app");
+			expect(page.body).not.toContain(secret);
+
+			const rows = await db.repository.listAudit(GUILD, { limit: 10 });
+			expect(rows.map((row) => row.action)).toEqual([
+				"server.appearance",
+				"secret.rotated",
+				"repo.paused",
+			]);
+			expect(rows.every((row) => row.source === "dashboard" && row.userId === "1")).toBe(true);
+			expect(await db.repository.listAudit(OTHER_GUILD, { limit: 10 })).toEqual([]);
+		});
+
+		it("stops adding repositories at MAX_REPOS_PER_SERVER", async () => {
+			app = await build({ ...DASHBOARD_ENV, MAX_REPOS_PER_SERVER: "2" });
+			const add = (repository: string) =>
+				post(`/dashboard/g/${GUILD}/repos/new`, [
+					["repository", repository],
+					["channel", CHANNEL],
+				]);
+			// One repository already exists; the second fills the allowance.
+			expect((await add("acme/second")).statusCode).toBe(200);
+			const third = await add("acme/third");
+			expect(third.statusCode).toBe(409);
+			expect(third.body).toContain("already tracks 2 repositories");
+			expect(await db.repository.getRepo(GUILD, "acme", "third")).toBeNull();
 		});
 
 		it("shuts out a session once DISCORD_ALLOWED_USER_ID names someone else", async () => {

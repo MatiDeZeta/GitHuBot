@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.4.2-8b5cf6?style=flat-square" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.5.0-8b5cf6?style=flat-square" alt="Version"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-24_LTS-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node"></a>
   <a href="https://discord.js.org/"><img src="https://img.shields.io/badge/discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white" alt="discord.js"></a>
   <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-11-F69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm"></a>
@@ -33,7 +33,7 @@
 5. Create the GitHub webhook from the ephemeral instructions (Payload URL + secret), content type `application/json` (GitHub's form-encoded default is accepted too), **Send me everything**.
 6. Run `/repo test owner/repo` to confirm the channel works, then `/repo events owner/repo` to choose what gets posted.
 
-> [**ⓘ**](#slash-commands) Optional: set `DISCORD_ALLOWED_USER_ID` to lock `/repo` commands to a single Discord user ID.
+> [**ⓘ**](#private-instance-one-bot-one-account) Optional: set `DISCORD_ALLOWED_USER_ID` to run a private instance that only your Discord account can use.
 
 <details>
 <summary><strong>More information</strong></summary>
@@ -267,12 +267,13 @@ pnpm dev
 | `MASTER_KEY` | yes* | 32-byte key (64 hex chars or base64) |
 | `PUBLIC_WEBHOOK_URL` | yes* | Public base URL (`https://…` or bare host) |
 | `DISCORD_GUILD_ID` | no | Register slash commands to one guild (faster in dev) |
-| `DISCORD_ALLOWED_USER_ID` | no | Restrict `/repo` to one Discord user ID |
+| `DISCORD_ALLOWED_USER_ID` | no | Run a [private instance](#private-instance-one-bot-one-account): only this Discord user ID may use the commands and the dashboard |
 | `DATABASE_URL` | no | Default `file:/app/data/githubot.db` in Docker; local default `file:./data/githubot.db`; or `postgresql://…` |
 | `PORT` / `HOST` | no | Default `3000` / `0.0.0.0` |
 | `TRUST_PROXY` | no | `true`/`false` or an IP/CIDR list. Required for per-IP rate limiting behind a proxy |
 | `WEBHOOK_BODY_LIMIT` | no | Max delivery size in bytes. Default `26214400` (GitHub's 25 MiB cap) |
 | `WEBHOOK_RATE_LIMIT` | no | Deliveries accepted per minute from one IP. Default `600` |
+| `MAX_REPOS_PER_SERVER` | no | Most repositories one server may track. Default `100` |
 | `METRICS_TOKEN` | no | When set, `/metrics` requires `Authorization: Bearer <token>` |
 | `DASHBOARD_ENABLED` | no | Serve the optional web dashboard. Default `false` |
 | `DASHBOARD_BASE_URL` | no | Public origin the dashboard is served from (required with the above) |
@@ -332,7 +333,12 @@ What it can do, per server:
 - **Per repository** — events, filters, the default channel with per-category channels
   and role mentions, appearance with a live message preview, webhook setup with
   reveal/rotate secret, pause/resume, send a test message, and the delivery log.
+- **History** — who changed what and when, whether from the dashboard or with `/repo`.
+  It records the person, the change and the repository, never a secret, for 90 days.
 - **Server settings** — default theme, density, language and the failure-alert channel.
+
+Signing out ends the session on the server, so a copy of the cookie stops working too,
+and **Sign out everywhere** (under Settings) ends every sign-in of yours at once.
 
 Every page and every change re-checks with Discord that you still hold Manage Server.
 A channel is offered and accepted only if it belongs to the server being edited and
@@ -343,6 +349,33 @@ reload.
 It is server-rendered with no build step and no CDN: one small script and one
 stylesheet, both served by the bot itself, so the project gains no dependency. Dark
 and light themes follow your system, and the layout works on a phone.
+
+---
+
+## Private instance (one bot, one account)
+
+GitHuBot is built to serve many servers, each managed by whoever holds Manage Server
+there. If you host it only for yourself, set one variable and it becomes a private
+instance:
+
+```
+DISCORD_ALLOWED_USER_ID=<your Discord user ID>
+```
+
+With it set:
+
+- Only that account can run `/repo` or get autocomplete suggestions, in any server.
+- Only that account can sign in to the dashboard; anyone else is refused after the
+  Discord sign-in, and the sign-in page says the instance is private.
+- When the bot is invited to a server you are not a member of, it leaves. It checks
+  only at the moment of the invite, and only leaves when Discord states you are not
+  there, so an outage never makes it walk out of a server it already serves.
+
+Also turn **Public Bot** off in the Discord Developer Portal (Bot tab), so nobody else
+can invite it in the first place. To find your user ID, enable Developer Mode in
+Discord (Settings → Advanced), right-click your name and choose **Copy User ID**.
+
+Leave the variable unset and nothing changes: GitHuBot stays a shared bot.
 
 ---
 
@@ -380,6 +413,8 @@ The image entrypoint `chown`s `/app/data` on boot so the non-root process can cr
 Deploy and restart. Migrations run automatically on boot, each one in a transaction, and every column added so far is nullable or defaulted — existing tracked repositories keep their channel, event selection and secrets. No release to date has required a new environment variable.
 
 **1.3.0** requires Node.js 24 when running outside Docker (`pnpm start` / `pnpm dev`); the Docker image already includes it.
+
+**1.5.0** asks everyone signed in to the dashboard to sign in once more: sessions gained an id so that signing out can end them on the server, and older cookies do not have one.
 
 Version-specific notes are in [`CHANGELOG.md`](CHANGELOG.md).
 

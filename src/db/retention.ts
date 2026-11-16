@@ -15,6 +15,12 @@ export const DELIVERY_RETENTION_DAYS = 30;
  */
 export const GUILD_GRACE_DAYS = 7;
 
+/**
+ * How long the change history is kept. Long enough to answer "who turned that off
+ * last month", short enough that Discord user ids are not held indefinitely.
+ */
+export const AUDIT_RETENTION_DAYS = 90;
+
 const INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
 
@@ -31,6 +37,12 @@ export function startHousekeeping(repository: RepoRepository, logger: Logger): (
 			if (removed > 0) logger.info({ removed }, "Pruned old delivery records");
 		} catch (err) {
 			logger.error({ err }, "Failed to prune delivery records");
+		}
+		try {
+			await repository.pruneAudit(new Date(Date.now() - AUDIT_RETENTION_DAYS * DAY_MS));
+			await repository.pruneRevocations(new Date());
+		} catch (err) {
+			logger.error({ err }, "Failed to prune change history and ended sessions");
 		}
 		try {
 			const cutoff = new Date(Date.now() - GUILD_GRACE_DAYS * DAY_MS);

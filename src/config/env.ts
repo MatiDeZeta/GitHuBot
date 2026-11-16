@@ -137,6 +137,12 @@ const envSchema = z.object({
 	 * for browsers silently drops CI-heavy bursts (workflow_job, check_run).
 	 */
 	WEBHOOK_RATE_LIMIT: z.coerce.number().int().positive().max(100_000).default(600),
+	/**
+	 * Most repositories one server may track. Every repository is a webhook
+	 * endpoint and rows in three tables, so someone with Manage Server could
+	 * otherwise grow the database without bound.
+	 */
+	MAX_REPOS_PER_SERVER: z.coerce.number().int().positive().max(10_000).default(100),
 	/** When set, `/metrics` requires `Authorization: Bearer <token>`. `/health` stays public. */
 	METRICS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(16).optional()),
 	LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),

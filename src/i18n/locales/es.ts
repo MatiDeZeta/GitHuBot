@@ -493,6 +493,8 @@ export const es: { [K in keyof typeof en]?: string } = {
 	"repo.add.alreadyTracked":
 		"`{repo}` ya está siendo rastreado. Usa `/repo webhook-info` o `/repo remove` primero.",
 	"repo.add.noChannel": "No se pudo resolver un canal de destino.",
+	"repo.add.limit":
+		"Este servidor ya rastrea {limit} repositorios, el máximo que permite esta instancia. Quita uno con `/repo remove` primero.",
 	"repo.add.saveFailed": "No se pudo guardar el repositorio. Puede que ya esté siendo rastreado.",
 	"repo.add.privateWarning":
 		"_Nota: no se encontró un repo **público** `{repo}`. Si es privado, no hay problema — continúa con la configuración del webhook._",

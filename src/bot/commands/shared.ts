@@ -92,6 +92,35 @@ export async function denyIfNotAllowed(
 	return true;
 }
 
+/**
+ * Writes a change made with a command to the server's history page. A record,
+ * not a gate: the change has already happened, so a failure here is logged and
+ * the command still answers normally.
+ */
+export async function recordChange(
+	ctx: BotContext,
+	interaction: { guildId: string | null; user: { id: string; username: string } },
+	action: string,
+	/** The repository it applied to, or null for a server-wide setting. */
+	target: Pick<TrackedRepo, "owner" | "repo"> | null,
+	detail: string | null = null,
+): Promise<void> {
+	if (!interaction.guildId) return;
+	try {
+		await ctx.repository.recordAudit({
+			guildId: interaction.guildId,
+			userId: interaction.user.id,
+			username: interaction.user.username,
+			source: "command",
+			action,
+			target: target ? `${target.owner}/${target.repo}` : null,
+			detail,
+		});
+	} catch (err) {
+		ctx.logger.error({ err, action }, "Failed to record a command change");
+	}
+}
+
 export type ParsedRepo = { owner: string; repo: string; slug: string };
 
 export function parseRepoSlug(raw: string): { error: string } | { value: ParsedRepo } {

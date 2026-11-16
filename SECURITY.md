@@ -65,10 +65,20 @@ accepts browser traffic, so it is deliberately narrow:
   — on add, reveal and rotate — and never appear in a `GET` page, so they cannot end
   up in a link, the history or a reload.
 - **Sign-out is a POST with the form token**, so another site cannot sign a user out.
-- **Sessions are signed, not stored**: an HMAC over a JSON payload, keyed by a value
+- **Sessions are signed cookies**: an HMAC over a JSON payload, keyed by a value
   derived from `MASTER_KEY` rather than `MASTER_KEY` itself, so a signing flaw cannot
   become a decryption oracle. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure`
   whenever the base URL is https.
+- **Signing out ends the session on the server.** Each session carries an id; sign-out
+  records it as ended until it would have expired, and "sign out everywhere" ends every
+  session that user started before the click. A copied cookie therefore stops working
+  when its owner signs out, not hours later. Cookies issued before 1.5.0 carry no id
+  and are no longer accepted.
+- **Changes are recorded.** Every change made in the dashboard or with `/repo` is
+  written to a per-server history: who, what, which repository, when. It never holds a
+  secret or a setting's contents.
+- **A server can track at most `MAX_REPOS_PER_SERVER` repositories** (100 by default),
+  so one server's admin cannot grow the database without bound.
 - **CSRF is checked on every action** with a per-session token compared in constant
   time, and the OAuth `state` parameter is checked the same way to prevent login CSRF.
 - **All rendered values are HTML-escaped**, including `lastError`, which can carry

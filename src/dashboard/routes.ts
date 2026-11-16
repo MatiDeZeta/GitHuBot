@@ -38,6 +38,7 @@ import {
 	clearCookie,
 	cookieName,
 	createCsrfToken,
+	createSessionId,
 	csrfMatches,
 	type DashboardSession,
 	decodeSession,
@@ -53,7 +54,9 @@ import {
 	activityPage,
 	errorPage,
 	guildPath,
+	HISTORY_PAGE_SIZE,
 	healthOf,
+	historyPage,
 	isRepoTab,
 	LOG_PAGE_SIZE,
 	type NavId,
@@ -261,17 +264,17 @@ function noticeFrom(query: Query): Notice | null {
 function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: RouteOptions): void {
 	const { secure, sessionSeconds, sessionCookie, stateCookie } = opts;
 
-	function sessionOf(request: FastifyRequest): DashboardSession | null {
+	async function sessionOf(request: FastifyRequest): Promise<DashboardSession | null> {
 		const session = decodeSession(readCookie(request.headers.cookie, sessionCookie), ctx.masterKey);
+		if (!session) return null;
 		// Re-checked on every request, so tightening DISCORD_ALLOWED_USER_ID and
 		// restarting shuts out sessions issued before the change.
-		if (
-			session &&
-			ctx.env.DISCORD_ALLOWED_USER_ID &&
-			ctx.env.DISCORD_ALLOWED_USER_ID !== session.userId
-		) {
+		if (ctx.env.DISCORD_ALLOWED_USER_ID && ctx.env.DISCORD_ALLOWED_USER_ID !== session.userId) {
 			return null;
 		}
+		// The signature only proves the cookie was issued here, not that it is still
+		// wanted: signing out, here or everywhere, has to hold for a copy of it too.
+		if (await ctx.repository.isSessionRevoked(session)) return null;
 		return session;
 	}
 
@@ -305,7 +308,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 		request: FastifyRequest<{ Params: GuildParams }>,
 		reply: FastifyReply,
 	): Promise<Access | null> {
-		const session = sessionOf(request);
+		const session = await sessionOf(request);
 		if (!session) {
 			await reply.redirect("/dashboard");
 			return null;
@@ -375,15 +378,37 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			: null;
 	}
 
-	function audit(session: DashboardSession, repo: TrackedRepo | string, action: string): void {
+	/**
+	 * Every change is written to the log and to the server's history page. `where`
+	 * is the repository it applied to, or the server id for a server-wide setting.
+	 * The history is a record, not a gate: failing to write it never undoes or
+	 * blocks the change that was just made.
+	 */
+	async function audit(
+		session: DashboardSession,
+		where: TrackedRepo | string,
+		action: string,
+		detail: string | null = null,
+	): Promise<void> {
+		const guildId = typeof where === "string" ? where : where.guildId;
+		const target = typeof where === "string" ? null : `${where.owner}/${where.repo}`;
 		ctx.logger.info(
-			{
-				userId: session.userId,
-				target: typeof repo === "string" ? repo : `${repo.owner}/${repo.repo}`,
-				action,
-			},
+			{ userId: session.userId, guildId, target, action, detail },
 			"Dashboard change",
 		);
+		try {
+			await ctx.repository.recordAudit({
+				guildId,
+				userId: session.userId,
+				username: session.username,
+				source: "dashboard",
+				action,
+				target,
+				detail,
+			});
+		} catch (err) {
+			ctx.logger.error({ err, guildId, action }, "Failed to record a dashboard change");
+		}
 	}
 
 	// -------------------------------------------------------------- loaders --
@@ -470,8 +495,10 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 	app.get("/dashboard/", async (_request, reply) => reply.redirect("/dashboard"));
 
 	app.get("/dashboard", async (request, reply) => {
-		const session = sessionOf(request);
-		if (!session) return html(reply, 200, signInPage());
+		const session = await sessionOf(request);
+		if (!session) {
+			return html(reply, 200, signInPage(Boolean(ctx.env.DISCORD_ALLOWED_USER_ID)));
+		}
 		const first = session.guilds[0];
 		if (!first) return html(reply, 200, noServersPage(session));
 		return reply.redirect(guildPath(first.id));
@@ -489,12 +516,34 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 	});
 
 	// A POST with the form token: a GET could be triggered by any page embedding
-	// the URL as an image, signing people out at will.
+	// the URL as an image, signing people out at will. The session's id is recorded
+	// as ended, so a copy of the cookie taken earlier stops working as well.
 	app.post("/dashboard/logout", async (request, reply) => {
-		const session = sessionOf(request);
-		if (session && !csrfMatches(session.csrfToken, formOf(request).get("csrf") ?? undefined)) {
+		const session = await sessionOf(request);
+		if (session) {
+			if (!csrfMatches(session.csrfToken, formOf(request).get("csrf") ?? undefined)) {
+				return html(reply, 403, errorPage(403, "Invalid form token."));
+			}
+			await ctx.repository.revokeSession(session.sid, new Date(session.expiresAt));
+		}
+		return reply.header("set-cookie", clearCookie(sessionCookie, secure)).redirect("/dashboard");
+	});
+
+	// Ends every sign-in of this person issued up to now, on any browser. Kept
+	// until the longest-lived of them would have expired on its own.
+	app.post("/dashboard/logout/all", async (request, reply) => {
+		const session = await sessionOf(request);
+		if (!session) return reply.redirect("/dashboard");
+		if (!csrfMatches(session.csrfToken, formOf(request).get("csrf") ?? undefined)) {
 			return html(reply, 403, errorPage(403, "Invalid form token."));
 		}
+		const now = Date.now();
+		await ctx.repository.revokeUserSessions(
+			session.userId,
+			new Date(now),
+			new Date(now + sessionSeconds * 1000),
+		);
+		ctx.logger.info({ userId: session.userId }, "Dashboard: signed out everywhere");
 		return reply.header("set-cookie", clearCookie(sessionCookie, secure)).redirect("/dashboard");
 	});
 
@@ -534,6 +583,8 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				const reachable = guilds.filter((guild) => ctx.discord.guilds.cache.has(guild.id));
 				const session = fitCookieBudget(
 					{
+						sid: createSessionId(),
+						issuedAt: Date.now(),
 						userId: user.id,
 						username: user.username,
 						avatarUrl: user.avatarUrl,
@@ -646,6 +697,33 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 	);
 
 	app.get<{ Params: GuildParams; Querystring: Query }>(
+		"/dashboard/g/:guildId/history",
+		async (request, reply) => {
+			const access = await guildAccess(request, reply);
+			if (!access) return reply;
+			const before = Number.parseInt(one(request.query.before), 10);
+			const [repos, rows] = await Promise.all([
+				ctx.repository.listRepos(access.guildId),
+				// One extra row is fetched to learn whether an older page exists.
+				ctx.repository.listAudit(access.guildId, {
+					limit: HISTORY_PAGE_SIZE + 1,
+					...(Number.isSafeInteger(before) && before > 0 ? { before } : {}),
+				}),
+			]);
+			const page = rows.slice(0, HISTORY_PAGE_SIZE);
+			return html(
+				reply,
+				200,
+				historyPage(shellFor(access.session, access.guildId, "history", repos), {
+					rows: page,
+					repos,
+					nextBefore: rows.length > HISTORY_PAGE_SIZE ? (page.at(-1)?.id ?? null) : null,
+				}),
+			);
+		},
+	);
+
+	app.get<{ Params: GuildParams; Querystring: Query }>(
 		"/dashboard/g/:guildId/settings",
 		async (request, reply) => {
 			const access = await guildAccess(request, reply);
@@ -716,7 +794,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				defaultDisplayMode: isDisplayMode(mode) ? mode : null,
 				locale: isAppLocale(locale) ? locale : null,
 			});
-			audit(access.session, access.guildId, "server defaults");
+			await audit(access.session, access.guildId, "server.appearance");
 			return reply.redirect(guildPath(access.guildId, "/settings?notice=settings_saved"));
 		},
 	);
@@ -733,7 +811,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			await ctx.repository.updateGuildSettings(access.guildId, {
 				alertChannelId: channel || null,
 			});
-			audit(access.session, access.guildId, "alert channel");
+			await audit(access.session, access.guildId, "server.alerts");
 			return reply.redirect(guildPath(access.guildId, "/settings?notice=alerts_saved"));
 		},
 	);
@@ -785,6 +863,13 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 		if (await ctx.repository.getRepo(guildId, owner, repo)) {
 			return again(409, `${slug.data.slug} is already tracked in this server.`);
 		}
+		const limit = ctx.env.MAX_REPOS_PER_SERVER;
+		if ((await ctx.repository.listRepos(guildId)).length >= limit) {
+			return again(
+				409,
+				`This server already tracks ${limit} repositories, the most this instance allows. Remove one first.`,
+			);
+		}
 
 		const secret = generateWebhookSecret();
 		const tracked = await ctx.repository.addRepo({
@@ -796,7 +881,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			encryptedSecret: encryptSecret(secret, ctx.masterKey),
 			enabledEvents: [...DEFAULT_ENABLED_EVENTS],
 		});
-		audit(session, tracked, "added");
+		await audit(session, tracked, "repo.added");
 		// Rendered straight from the POST rather than after a redirect: the secret is
 		// shown once and must never travel in a URL.
 		return renderRepo(reply, session, viewer, tracked, "webhook", {}, secret, {
@@ -895,7 +980,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 					found.repo.repo,
 					paused,
 				);
-				audit(found.session, found.repo, paused ? "paused" : "resumed");
+				await audit(found.session, found.repo, paused ? "repo.paused" : "repo.resumed");
 				return reply.redirect(back(found.repo, "overview", paused ? "paused" : "resumed"));
 			},
 		);
@@ -922,7 +1007,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				}),
 				renderOptionsFor(repo, guild, ctx.renderDefaults),
 			);
-			audit(session, repo, `test ${event.data}: ${outcome.status}`);
+			await audit(session, repo, "repo.test", `${event.data}: ${outcome.status}`);
 			return reply.redirect(
 				back(repo, "overview", outcome.status === "delivered" ? "test_ok" : "test_failed"),
 			);
@@ -941,7 +1026,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			// an event is dropped rather than stored.
 			const events = preset ? [...preset] : EVENT_TYPES.filter((event) => chosen.has(event));
 			await ctx.repository.updateEvents(repo.guildId, repo.owner, repo.repo, events);
-			audit(found.session, repo, `events: ${events.length}`);
+			await audit(found.session, repo, "repo.events", `${events.length} enabled`);
 			return reply.redirect(back(repo, "events", "events_saved"));
 		},
 	);
@@ -960,7 +1045,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				labels: list("labels"),
 				ignoredActors: list("ignoredActors"),
 			});
-			audit(found.session, repo, "filters");
+			await audit(found.session, repo, "repo.filters");
 			return reply.redirect(back(repo, "filters", "filters_saved"));
 		},
 	);
@@ -976,7 +1061,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				return reply.redirect(back(repo, "routing", "bad_channel"));
 			}
 			await ctx.repository.updateChannel(repo.guildId, repo.owner, repo.repo, channel);
-			audit(found.session, repo, "channel");
+			await audit(found.session, repo, "repo.channel");
 			return reply.redirect(back(repo, "routing", "channel_saved"));
 		},
 	);
@@ -1013,7 +1098,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			}
 			await ctx.repository.updateRoutes(repo.guildId, repo.owner, repo.repo, routes);
 			await ctx.repository.updateMentions(repo.guildId, repo.owner, repo.repo, mentions);
-			audit(found.session, repo, "routing");
+			await audit(found.session, repo, "repo.routing");
 			return reply.redirect(back(repo, "routing", "routing_saved"));
 		},
 	);
@@ -1032,7 +1117,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				displayMode: isDisplayMode(mode) ? mode : null,
 				locale: isAppLocale(locale) ? locale : null,
 			});
-			audit(found.session, repo, "appearance");
+			await audit(found.session, repo, "repo.appearance");
 			return reply.redirect(back(repo, "appearance", "style_saved"));
 		},
 	);
@@ -1045,7 +1130,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			const found = await repoWrite(request, reply);
 			if (!found) return reply;
 			const secret = tryDecryptSecret(found.repo.encryptedSecret, ctx.masterKey);
-			audit(found.session, found.repo, "secret revealed");
+			await audit(found.session, found.repo, "secret.revealed");
 			return renderRepo(
 				reply,
 				found.session,
@@ -1078,7 +1163,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 						? null
 						: repo.encryptedSecret,
 			});
-			audit(found.session, repo, "secret rotated");
+			await audit(found.session, repo, "secret.rotated");
 			return renderRepo(
 				reply,
 				found.session,
@@ -1105,7 +1190,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				return reply.redirect(back(repo, "webhook", "confirm"));
 			}
 			await ctx.repository.removeRepo(repo.guildId, repo.owner, repo.repo);
-			audit(found.session, repo, "removed");
+			await audit(found.session, repo, "repo.removed");
 			return reply.redirect(guildPath(repo.guildId, "/repos?notice=removed"));
 		},
 	);

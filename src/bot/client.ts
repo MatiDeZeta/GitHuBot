@@ -36,6 +36,7 @@ import { handleEventsComponent } from "./commands/repo-events.js";
 import { guildContext, isAllowedUser, respondRepoAutocomplete } from "./commands/shared.js";
 import { listApplicationEmojis, syncApplicationEmojis } from "./emojis.js";
 import { INITIAL_PRESENCE, startPresence } from "./presence.js";
+import { leaveIfOwnerAbsent } from "./private-instance.js";
 import { applyApplicationEmojis } from "./render/icons.js";
 
 export interface BotContext {
@@ -67,6 +68,12 @@ export function createBot(ctx: BotContext): Client {
 
 	client.once(Events.ClientReady, (readyClient) => {
 		ctx.logger.info({ user: readyClient.user.tag }, "Discord bot ready");
+		if (ctx.env.DISCORD_ALLOWED_USER_ID) {
+			ctx.logger.info(
+				{ ownerId: ctx.env.DISCORD_ALLOWED_USER_ID },
+				"Private instance: only this Discord account can use the commands and the dashboard",
+			);
+		}
 		void loadIconEmojis(readyClient, ctx);
 		void reconcileGuilds(readyClient, ctx);
 		startPresence(readyClient, {
@@ -106,6 +113,9 @@ export function createBot(ctx: BotContext): Client {
 			.catch((err) =>
 				ctx.logger.error({ err, guildId: guild.id }, "Failed to mark server as joined"),
 			);
+		// Only fires for a fresh invite, so servers the bot is already in are never
+		// re-examined: see `leaveIfOwnerAbsent` for when it walks away.
+		void leaveIfOwnerAbsent(guild, ctx.env.DISCORD_ALLOWED_USER_ID, ctx.logger);
 	});
 
 	client.on(Events.InteractionCreate, async (interaction: Interaction) => {

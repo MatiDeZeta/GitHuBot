@@ -147,6 +147,43 @@ export interface DeliveryLogQuery {
 	outcome?: DeliveryOutcome;
 }
 
+/** Where a change was made. */
+export const AUDIT_SOURCES = ["dashboard", "command"] as const;
+export type AuditSource = (typeof AUDIT_SOURCES)[number];
+
+export interface NewAuditEntry {
+	guildId: string;
+	/** Discord user id of whoever made the change. */
+	userId: string;
+	/** Their username at the time, so the history still reads after a rename. */
+	username: string | null;
+	source: AuditSource;
+	/** A stable key such as `repo.added` or `secret.rotated`. */
+	action: string;
+	/** The repository it applied to as `owner/repo`, or null for a server setting. */
+	target: string | null;
+	/** A short qualifier, e.g. the event a test message used. Never a secret. */
+	detail: string | null;
+}
+
+export interface AuditEntry extends NewAuditEntry {
+	id: number;
+	createdAt: Date;
+}
+
+export interface AuditQuery {
+	limit: number;
+	/** Only entries older than this id, for paging backwards. */
+	before?: number;
+}
+
+/** Identifies one dashboard sign-in when asking whether it has been ended. */
+export interface SessionRef {
+	sid: string;
+	userId: string;
+	issuedAt: number;
+}
+
 export interface RepoRepository {
 	ensureGuild(guildId: string): Promise<void>;
 	getGuildSettings(guildId: string): Promise<GuildSettings | null>;
@@ -252,4 +289,19 @@ export interface RepoRepository {
 	 * or disabled — so it reads as repository activity, not messages posted.
 	 */
 	activityByDay(trackingIds: string[], days: number): Promise<Map<string, number[]>>;
+
+	/** Appends to the server's change history. */
+	recordAudit(entry: NewAuditEntry): Promise<void>;
+	/** Newest first. */
+	listAudit(guildId: string, query: AuditQuery): Promise<AuditEntry[]>;
+	/** Deletes change-history rows older than `olderThan`. */
+	pruneAudit(olderThan: Date): Promise<void>;
+
+	/** Ends one dashboard sign-in. The record is kept until the session would have expired. */
+	revokeSession(sid: string, expiresAt: Date): Promise<void>;
+	/** Ends every dashboard sign-in this user started at or before `at`. */
+	revokeUserSessions(userId: string, at: Date, expiresAt: Date): Promise<void>;
+	isSessionRevoked(session: SessionRef): Promise<boolean>;
+	/** Drops revocation records whose sessions have expired anyway. */
+	pruneRevocations(now: Date): Promise<void>;
 }

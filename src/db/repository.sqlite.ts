@@ -1,9 +1,11 @@
-import { and, count, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import type { EventType } from "../config/events.js";
 import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
 import * as schema from "./schema.sqlite.js";
 import {
+	AUDIT_SOURCES,
+	type AuditEntry,
 	type CreateTrackedRepoInput,
 	type DeliveryLogEntry,
 	type DeliveryOutcome,
@@ -52,6 +54,27 @@ function toLogEntry(row: typeof schema.deliveryLog.$inferSelect): DeliveryLogEnt
 		detail: row.detail,
 		createdAt: row.createdAt,
 	};
+}
+
+function toAuditEntry(row: typeof schema.auditLog.$inferSelect): AuditEntry {
+	return {
+		id: row.id,
+		guildId: row.guildId,
+		userId: row.userId,
+		username: row.username,
+		source: (AUDIT_SOURCES as readonly string[]).includes(row.source)
+			? (row.source as AuditEntry["source"])
+			: "dashboard",
+		action: row.action,
+		target: row.target,
+		detail: row.detail,
+		createdAt: row.createdAt,
+	};
+}
+
+/** Short free text only; a long value is a bug upstream, not something to store. */
+function clip(value: string | null, max: number): string | null {
+	return value === null ? null : value.slice(0, max);
 }
 
 type SqliteDb = BetterSQLite3Database<typeof schema>;
@@ -272,6 +295,7 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 						.where(inArray(schema.deliveryLog.trackingId, trackingIds))
 						.run();
 				}
+				tx.delete(schema.auditLog).where(inArray(schema.auditLog.guildId, gone)).run();
 				// Tracked repositories go with the guild through ON DELETE CASCADE.
 				tx.delete(schema.guilds).where(inArray(schema.guilds.guildId, gone)).run();
 			});
@@ -389,6 +413,79 @@ export function createSqliteRepository(db: SqliteDb): RepoRepository {
 							},
 				)
 				.where(eq(schema.trackedRepos.trackingId, result.trackingId))
+				.run();
+		},
+
+		async recordAudit(entry) {
+			db.insert(schema.auditLog)
+				.values({
+					...entry,
+					username: clip(entry.username, 64),
+					action: entry.action.slice(0, 64),
+					target: clip(entry.target, 200),
+					detail: clip(entry.detail, 200),
+				})
+				.run();
+		},
+
+		async listAudit(guildId, query) {
+			return db
+				.select()
+				.from(schema.auditLog)
+				.where(
+					and(
+						eq(schema.auditLog.guildId, guildId),
+						query.before !== undefined ? lt(schema.auditLog.id, query.before) : undefined,
+					),
+				)
+				.orderBy(desc(schema.auditLog.id))
+				.limit(query.limit)
+				.all()
+				.map(toAuditEntry);
+		},
+
+		async pruneAudit(olderThan) {
+			db.delete(schema.auditLog).where(lt(schema.auditLog.createdAt, olderThan)).run();
+		},
+
+		async revokeSession(sid, expiresAt) {
+			db.insert(schema.sessionRevocations)
+				.values({ key: `s:${sid}`, revokedAt: new Date(), expiresAt })
+				.onConflictDoNothing()
+				.run();
+		},
+
+		async revokeUserSessions(userId, at, expiresAt) {
+			db.insert(schema.sessionRevocations)
+				.values({ key: `u:${userId}`, revokedAt: at, expiresAt })
+				.onConflictDoUpdate({
+					target: schema.sessionRevocations.key,
+					set: { revokedAt: at, expiresAt },
+				})
+				.run();
+		},
+
+		async isSessionRevoked(session) {
+			const row = db
+				.select({ key: schema.sessionRevocations.key })
+				.from(schema.sessionRevocations)
+				.where(
+					or(
+						eq(schema.sessionRevocations.key, `s:${session.sid}`),
+						and(
+							eq(schema.sessionRevocations.key, `u:${session.userId}`),
+							gte(schema.sessionRevocations.revokedAt, new Date(session.issuedAt)),
+						),
+					),
+				)
+				.limit(1)
+				.get();
+			return row !== undefined;
+		},
+
+		async pruneRevocations(now) {
+			db.delete(schema.sessionRevocations)
+				.where(lt(schema.sessionRevocations.expiresAt, now))
 				.run();
 		},
 	};

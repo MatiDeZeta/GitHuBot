@@ -27,7 +27,14 @@ import {
 } from "../../i18n/index.js";
 import type { BotContext } from "../client.js";
 import { icon } from "../render/icons.js";
-import { ephemeralText, guildContext, isAllowedUser, slugOf, v2Update } from "./shared.js";
+import {
+	ephemeralText,
+	guildContext,
+	isAllowedUser,
+	recordChange,
+	slugOf,
+	v2Update,
+} from "./shared.js";
 
 /*
  * Custom ID grammar (Discord caps these at 100 characters):
@@ -211,6 +218,7 @@ export async function handleEventsComponent(
 			tracked.repo,
 			events,
 		)) ?? { ...tracked, enabledEvents: events };
+		await recordChange(ctx, interaction, "repo.events", tracked, `${events.length} enabled`);
 
 		await interaction.update(
 			v2Update(
@@ -247,6 +255,7 @@ export async function handleEventsComponent(
 			tracked.repo,
 			next,
 		)) ?? { ...tracked, enabledEvents: next };
+		await recordChange(ctx, interaction, "repo.events", tracked, `${next.length} enabled`);
 
 		await interaction.update(
 			v2Update(

@@ -7,6 +7,7 @@ import {
 	eventsInCategory,
 } from "../config/events.js";
 import {
+	type AuditEntry,
 	DELIVERY_OUTCOMES,
 	type DeliveryLogEntry,
 	type DeliveryOutcome,
@@ -74,6 +75,7 @@ const ICON = {
 	info: svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'),
 	chevron: svg('<path d="m6 9 6 6 6-6"/>', 14),
 	out: svg('<path d="M9 21H5V3h4M16 17l5-5-5-5M21 12H9"/>'),
+	clock: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
 	hash: svg('<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>', 14),
 };
 
@@ -213,7 +215,7 @@ function meter(delivered: number, failed: number): string {
 
 // ------------------------------------------------------------------- shell --
 
-export type NavId = "overview" | "repos" | "activity" | "settings";
+export type NavId = "overview" | "repos" | "activity" | "history" | "settings";
 
 export interface Shell {
 	session: DashboardSession;
@@ -271,6 +273,7 @@ function sidebar(shell: Shell): string {
 					: `<span class="n">${shell.repoCount}</span>`,
 			)}
 			${link("activity", guildPath(guildId, "/activity"), ICON.pulse, "Deliveries")}
+			${link("history", guildPath(guildId, "/history"), ICON.clock, "History")}
 			${link("settings", guildPath(guildId, "/settings"), ICON.gear, "Settings")}
 		</nav>
 		<div class="foot">
@@ -996,6 +999,69 @@ export function activityPage(
 	);
 }
 
+// ----------------------------------------------------------------- history --
+
+/** Rows per page of the change history. */
+export const HISTORY_PAGE_SIZE = 50;
+
+const AUDIT_LABEL: Record<string, string> = {
+	"repo.added": "Added the repository",
+	"repo.removed": "Removed the repository",
+	"repo.paused": "Paused deliveries",
+	"repo.resumed": "Resumed deliveries",
+	"repo.events": "Changed which events are posted",
+	"repo.filters": "Changed filters",
+	"repo.channel": "Changed the default channel",
+	"repo.routing": "Changed channel routing",
+	"repo.mentions": "Changed role mentions",
+	"repo.appearance": "Changed appearance",
+	"repo.test": "Sent a test message",
+	"secret.revealed": "Revealed the webhook secret",
+	"secret.rotated": "Rotated the webhook secret",
+	"server.appearance": "Changed the server's default appearance",
+	"server.language": "Changed the server's language",
+	"server.alerts": "Changed failure alerts",
+};
+
+export function historyPage(
+	shell: Shell,
+	data: { rows: AuditEntry[]; repos: TrackedRepo[]; nextBefore: number | null },
+): string {
+	const bySlug = new Map(data.repos.map((repo) => [slugOf(repo).toLowerCase(), repo]));
+	const body = data.rows
+		.map((row) => {
+			const repo = row.target ? bySlug.get(row.target.toLowerCase()) : undefined;
+			const target = !row.target
+				? '<span class="faint">Server</span>'
+				: repo
+					? `<a class="link mono" href="${repoPath(repo)}">${esc(row.target)}</a>`
+					: `<span class="mono">${esc(row.target)}</span>`;
+			return `<tr>
+				<td class="tight muted">${when(row.createdAt)}</td>
+				<td>${esc(row.username ?? row.userId)}</td>
+				<td>${esc(AUDIT_LABEL[row.action] ?? row.action)}${row.detail ? ` <span class="faint">· ${esc(row.detail)}</span>` : ""}</td>
+				<td>${target}</td>
+				<td class="tight"><span class="badge dim">${row.source === "command" ? "/repo" : "Dashboard"}</span></td>
+			</tr>`;
+		})
+		.join("");
+	const table =
+		data.rows.length === 0
+			? '<div class="empty"><p>No changes recorded yet. Changes made here or with <code>/repo</code> appear as they happen.</p></div>'
+			: `<div class="scroll"><table class="table"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Repository</th><th>Where</th></tr></thead><tbody>${body}</tbody></table></div>`;
+	const older =
+		data.nextBefore === null
+			? null
+			: guildPath(shell.guildId, `/history?before=${data.nextBefore}`);
+	return page(
+		shell,
+		"History",
+		`${header("History", "Who changed what in this server, newest first")}
+		<div class="card">${table}${pager(older)}</div>
+		<p class="hint">Records the person, the change and the repository — never a secret or a setting's contents — and is kept for 90 days.</p>`,
+	);
+}
+
 // ---------------------------------------------------------------- settings --
 
 export function settingsPage(
@@ -1028,6 +1094,12 @@ export function settingsPage(
 						<div class="bd"><label class="f"><span class="sr">Alert channel</span>${channelSelect("channel", data.directory, settings?.alertChannelId ?? null, "Off")}<small>Posts once when a repository's deliveries start failing, and once when they recover. Never per event, and it pings nobody.</small></label></div>
 						<div class="ft"><span></span><button class="btn primary" type="submit">Save alerts</button></div>
 					</form>
+					<form class="card" method="post" action="/dashboard/logout/all">
+						${csrfField(shell.session)}
+						<div class="hd"><h2>Your sign-in</h2></div>
+						<div class="bd"><p class="muted">Signed in as <b>${esc(shell.session.username)}</b>. Signing out everywhere ends this sign-in and every other one of yours, on any browser or device, at once.</p></div>
+						<div class="ft"><span class="hint">Use it if you signed in on a computer that is not yours.</span><button class="btn" type="submit">Sign out everywhere</button></div>
+					</form>
 				</div>
 				${previewCard(data.previewHtml)}
 			</div>
@@ -1041,12 +1113,17 @@ function centered(title: string, inner: string): string {
 	return document_(title, `<div class="center"><div class="card">${inner}</div></div>`);
 }
 
-export function signInPage(): string {
+/** `privateInstance`: the operator locked this bot to one Discord account. */
+export function signInPage(privateInstance = false): string {
 	return centered(
 		"Sign in · GitHuBot",
 		`${ICON.mark(32)}<h1>Sign in to GitHuBot</h1><p>Manage the repositories your servers track, and see what was delivered.</p>
 		<a class="btn primary" href="/dashboard/login">Continue with Discord</a>
-		<p class="hint">Only servers where you have <b>Manage Server</b> are shown. GitHuBot asks Discord for your name and server list, nothing else.</p>`,
+		${
+			privateInstance
+				? '<p class="hint">This is a private instance: only its owner can sign in. GitHuBot is open source, so you can <a class="link" href="https://github.com/MatiDeZeta/GitHuBot" rel="noreferrer">run your own</a>.</p>'
+				: '<p class="hint">Only servers where you have <b>Manage Server</b> are shown. GitHuBot asks Discord for your name and server list, nothing else.</p>'
+		}`,
 	);
 }
 

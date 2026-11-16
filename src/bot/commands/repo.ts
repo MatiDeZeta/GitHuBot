@@ -43,6 +43,7 @@ import {
 	ephemeralV2,
 	guildContext,
 	parseRepoSlug,
+	recordChange,
 	relative,
 	requireTrackedRepo,
 	slugOf,
@@ -338,6 +339,11 @@ async function handleAdd(interaction: GuildChatInput, ctx: BotContext, locale: A
 		await interaction.reply(ephemeralText(t(locale, "repo.add.alreadyTracked", { repo: slug })));
 		return;
 	}
+	const limit = ctx.env.MAX_REPOS_PER_SERVER;
+	if ((await ctx.repository.listRepos(guildId)).length >= limit) {
+		await interaction.reply(ephemeralText(t(locale, "repo.add.limit", { limit })));
+		return;
+	}
 
 	await interaction.deferReply({
 		flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
@@ -366,6 +372,7 @@ async function handleAdd(interaction: GuildChatInput, ctx: BotContext, locale: A
 		await interaction.editReply(ephemeralTextEdit(t(locale, "repo.add.saveFailed")));
 		return;
 	}
+	await recordChange(ctx, interaction, "repo.added", { owner, repo });
 
 	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, trackingId);
 	const lines = [
@@ -402,6 +409,7 @@ async function handleRemove(interaction: GuildChatInput, ctx: BotContext, locale
 		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;
 	}
+	await recordChange(ctx, interaction, "repo.removed", removed);
 
 	await interaction.reply(
 		ephemeralText(
@@ -486,6 +494,7 @@ async function handleChannel(interaction: GuildChatInput, ctx: BotContext, local
 		await interaction.reply(ephemeralText(t(locale, "common.error.repoNotFound", { repo: slug })));
 		return;
 	}
+	await recordChange(ctx, interaction, "repo.channel", updated);
 	const access = await channelAccessWarning(interaction, channel.id, locale, slugOf(updated));
 	const done = t(locale, "repo.channel.done", { repo: slug, channel: channel.id });
 	await interaction.reply(ephemeralText(access ? `${done}\n\n${access}` : done));
@@ -548,6 +557,7 @@ async function handleRegenerateSecret(
 				? null
 				: tracked.encryptedSecret,
 	});
+	await recordChange(ctx, interaction, "secret.rotated", tracked);
 
 	const payloadUrl = webhookUrl(ctx.env.PUBLIC_WEBHOOK_URL, tracked.trackingId);
 	const slug = slugOf(tracked);

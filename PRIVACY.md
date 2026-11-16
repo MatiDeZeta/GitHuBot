@@ -38,6 +38,19 @@ In the instance's own database (SQLite or Postgres):
   failed, …), a short reason when there is one — a filter rule, or the error Discord
   returned — and the time. It never holds any part of the payload.
 
+**For each change to a server's configuration**
+
+- The server ID, the Discord user ID and username of whoever made the change, whether
+  it was made in the dashboard or with `/repo`, what kind of change it was (for example
+  "paused deliveries" or "rotated the webhook secret"), the repository it applied to,
+  and the time. It never holds a secret or the contents of a setting. Server admins see
+  it on the dashboard's History page.
+
+**For each dashboard sign-in that was ended early**
+
+- A random session ID (on sign-out) or the Discord user ID with the time of the click
+  (on "sign out everywhere"), kept only until that session would have expired.
+
 ## What is not stored
 
 - **Webhook payloads.** Each one is checked, turned into a Discord message, and
@@ -45,7 +58,8 @@ In the instance's own database (SQLite or Postgres):
 - **Message contents** once posted — Discord holds them, not GitHuBot.
 - **GitHub credentials.** There are none; the bot never signs in to GitHub.
 - **Secrets from secret scanning alerts.** The alert's secret value is never read.
-- **Discord user profiles.** Commands check permissions at the moment they run.
+- **Discord user profiles.** Commands check permissions at the moment they run. The
+  only user data kept is the ID and username on change-history entries, described above.
 
 ## The optional dashboard
 
@@ -59,8 +73,7 @@ sign-out. The pages load nothing from third parties except the signed-in user's 
 their servers' images from Discord's CDN.
 
 Changes made in the dashboard are stored exactly as the same change made with `/repo`
-would be; the dashboard keeps no separate record of who changed what beyond the logs
-described below.
+would be, and both are written to the change history described above.
 
 ## Kept only in memory
 
@@ -91,6 +104,8 @@ Nothing else is contacted. There is no telemetry and no analytics.
   tracked repositories and their delivery records — **7 days later**. Inviting the bot
   back within those 7 days cancels it. A Discord outage never counts as a removal.
 - **Delivery records**, including the delivery log, are deleted after **30 days**.
+- **Change history** is deleted after **90 days**, and at once with the server's other
+  data when the bot is removed (after the 7-day grace period above).
 
 A server's admins can therefore erase everything the bot holds about their server by
 removing each repository, or by removing the bot.
