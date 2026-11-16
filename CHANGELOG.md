@@ -5,6 +5,50 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] — 2026-11-16
+
+A security release from a full review of the code. No migrations, no new environment
+variables.
+
+### Security
+
+- **A delivery body is no longer parsed before its signature is verified.** The JSON
+  was parsed as the request arrived and the signature checked afterwards, so anyone
+  who had learned a webhook URL — without the secret — could make the server parse up
+  to `WEBHOOK_BODY_LIMIT` (25 MiB) of JSON per request, which blocks every other
+  delivery and command while it runs. The body is now only buffered, the signature is
+  checked against it, and it is parsed after that. An unsigned or wrongly signed
+  request with a malformed body is answered 401 rather than 400.
+- **A filter could be made to stall the bot with one oversized payload value.** Filter
+  patterns are matched in time proportional to pattern × value, and the value comes
+  from the payload. Whoever holds a repository's webhook secret can sign any payload,
+  so a multi-megabyte "branch name" against a server's filters kept the event loop
+  busy for seconds per pattern. Values longer than 1024 characters — longer than any
+  real ref or login — now match nothing without being walked.
+- **`/stats` named the last repository delivered on the whole instance** to anyone, in
+  any server, and listed a server's busiest repositories to every member. The last
+  event's repository is now shown only in the server that tracks it, and both only to
+  someone with Manage Server; the counters are unchanged.
+- **Failed deliveries copied the message into the logs.** discord.js attaches the
+  request to an API error, and that request is the rendered message: issue text,
+  commit messages, names. It is now removed before an error is logged, as the privacy
+  notes already promised.
+- **A pull request's branch names were not escaped.** They were wrapped in backticks
+  by hand, and git allows a backtick in a ref name, so a contributor's branch could
+  close the code span and add its own formatting or a role pill (never a ping) to the
+  message. They now go through the same helper as every other code span.
+- **`X-GitHub-Delivery` is validated** as a short identifier before it is stored or
+  logged; the header is not covered by the signature.
+- The logger also redacts `DISCORD_CLIENT_SECRET`, form tokens and the `Cookie` header.
+
+### Changed
+
+- Test files are now type-checked by `pnpm typecheck` (they were excluded), which
+  found one unsafe index in a test.
+- Row-mapping helpers that existed twice, once per database backend, live in one
+  place; the two URL allow-list functions are one; `/repo` uses the shared
+  allowed-user check instead of its own copy.
+
 ## [1.5.1] — 2026-11-16
 
 No migrations, no new environment variables.
@@ -594,7 +638,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.5.2...HEAD
+[1.5.2]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.2
 [1.5.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.1
 [1.5.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.0
 [1.4.2]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.2

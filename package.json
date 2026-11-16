@@ -1,6 +1,6 @@
 {
 	"name": "githubot",
-	"version": "1.5.1",
+	"version": "1.5.2",
 	"description": "Beautiful Discord changelog messages for GitHub activity — zero GitHub credentials required",
 	"type": "module",
 	"private": true,
@@ -14,7 +14,7 @@
 		"start": "node --env-file-if-exists=.env dist/index.js",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
-		"typecheck": "tsc --noEmit",
+		"typecheck": "tsc -p tsconfig.check.json",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"audit:supply-chain": "pnpm install --frozen-lockfile && pnpm audit --audit-level moderate && node scripts/check-store-integrity.mjs",

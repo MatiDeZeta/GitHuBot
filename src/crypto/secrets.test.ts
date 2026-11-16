@@ -28,7 +28,7 @@ describe("crypto secrets", () => {
 	it("rejects tampered ciphertext", () => {
 		const encrypted = encryptSecret("hello", key);
 		const buf = Buffer.from(encrypted, "base64");
-		buf[buf.length - 1] ^= 0xff;
+		buf[buf.length - 1] = (buf[buf.length - 1] ?? 0) ^ 0xff;
 		expect(() => decryptSecret(buf.toString("base64"), key)).toThrow();
 	});
 

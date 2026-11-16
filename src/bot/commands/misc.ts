@@ -2,6 +2,7 @@ import {
 	type ChatInputCommandInteraction,
 	version as discordJsVersion,
 	InteractionContextType,
+	PermissionFlagsBits,
 	SlashCommandBuilder,
 } from "discord.js";
 import { localizations, type TranslationKey, t } from "../../i18n/index.js";
@@ -113,10 +114,17 @@ export async function handleStats(
 		interaction.guildId ? ctx.repository.listRepos(interaction.guildId) : Promise.resolve([]),
 	]);
 
-	const lastEvent = snapshot.lastEvent
-		? `\`${snapshot.lastEvent.type}\` · ${snapshot.lastEvent.repo} · <t:${Math.floor(
-				snapshot.lastEvent.at.getTime() / 1000,
-			)}:R>`
+	// The counters are instance-wide, but a repository's name belongs to its server:
+	// the last event is only named when it happened here, and only to someone who
+	// could list this server's repositories anyway.
+	const manages = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false;
+	const last = snapshot.lastEvent;
+	const lastEvent = last
+		? [
+				`\`${last.type}\``,
+				...(manages && last.guildId === interaction.guildId ? [last.repo] : []),
+				`<t:${Math.floor(last.at.getTime() / 1000)}:R>`,
+			].join(" · ")
 		: t(locale, "common.never");
 
 	const lines = [
@@ -139,7 +147,7 @@ export async function handleStats(
 		t(locale, "stats.lastEvent", { value: lastEvent }),
 	];
 
-	if (guildRepos.length > 0) {
+	if (manages && guildRepos.length > 0) {
 		const busiest = [...guildRepos]
 			.sort((a, b) => b.deliveredCount - a.deliveredCount)
 			.slice(0, 5)

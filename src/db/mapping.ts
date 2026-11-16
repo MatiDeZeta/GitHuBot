@@ -2,7 +2,15 @@ import { type DisplayMode, isDisplayMode } from "../bot/render/template.js";
 import { isThemeId, type ThemeId } from "../bot/render/theme.js";
 import { parseEnabledEvents } from "../config/events.js";
 import { type AppLocale, isAppLocale } from "../i18n/index.js";
-import type { GuildSettings, RepoFilters, TrackedRepo } from "./types.js";
+import {
+	AUDIT_SOURCES,
+	type AuditEntry,
+	type DeliveryLogEntry,
+	type GuildSettings,
+	isDeliveryOutcome,
+	type RepoFilters,
+	type TrackedRepo,
+} from "./types.js";
 
 /**
  * Structural shape shared by the SQLite and Postgres row types, so both
@@ -156,4 +164,74 @@ export function mapGuildRow(row: RawGuildRow): GuildSettings {
 export function clampError(message: string | undefined): string | null {
 	if (!message) return null;
 	return message.length > 500 ? `${message.slice(0, 499)}…` : message;
+}
+
+/** UTC day index, shared by both dialects so buckets line up. */
+export function dayIndex(ms: number): number {
+	return Math.floor(ms / 86_400_000);
+}
+
+/** Fixed-width buckets, oldest first, zero-filled for days with no traffic. */
+export function emptyBuckets(days: number): number[] {
+	return new Array<number>(days).fill(0);
+}
+
+/** Short free text only; a long value is a bug upstream, not something to store. */
+export function clip(value: string | null, max: number): string | null {
+	return value === null ? null : value.slice(0, max);
+}
+
+/** The delivery-log row shape both dialects select. */
+interface DeliveryLogRow {
+	id: number;
+	trackingId: string;
+	deliveryId: string;
+	event: string;
+	action: string | null;
+	outcome: string;
+	detail: string | null;
+	createdAt: Date;
+}
+
+export function toLogEntry(row: DeliveryLogRow): DeliveryLogEntry {
+	return {
+		id: row.id,
+		trackingId: row.trackingId,
+		deliveryId: row.deliveryId,
+		event: row.event,
+		action: row.action,
+		// An outcome written by a newer version reads as a failure rather than vanishing.
+		outcome: isDeliveryOutcome(row.outcome) ? row.outcome : "failed",
+		detail: row.detail,
+		createdAt: row.createdAt,
+	};
+}
+
+/** The change-history row shape both dialects select. */
+interface AuditRow {
+	id: number;
+	guildId: string;
+	userId: string;
+	username: string | null;
+	source: string;
+	action: string;
+	target: string | null;
+	detail: string | null;
+	createdAt: Date;
+}
+
+export function toAuditEntry(row: AuditRow): AuditEntry {
+	return {
+		id: row.id,
+		guildId: row.guildId,
+		userId: row.userId,
+		username: row.username,
+		source: (AUDIT_SOURCES as readonly string[]).includes(row.source)
+			? (row.source as AuditEntry["source"])
+			: "dashboard",
+		action: row.action,
+		target: row.target,
+		detail: row.detail,
+		createdAt: row.createdAt,
+	};
 }

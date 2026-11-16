@@ -85,6 +85,31 @@ describe("push rendering", () => {
 	});
 });
 
+describe("pull request rendering", () => {
+	it("keeps a branch name with a backtick inside its code span", () => {
+		// Git allows a backtick in a ref name, and a fork's author picks their own.
+		const text = renderedText(
+			build("pull_request", {
+				action: "opened",
+				number: 7,
+				repository,
+				sender,
+				pull_request: {
+					number: 7,
+					title: "Fix",
+					html_url: "https://github.com/acme/app/pull/7",
+					user: sender,
+					head: { ref: "fix` <@&123456789012345678> `x" },
+					base: { ref: "main" },
+				},
+			}),
+			EN,
+		);
+		expect(text).not.toContain("fix` <@&");
+		expect(text).toContain("`fixʼ <@&123456789012345678> ʼx`");
+	});
+});
+
 describe("state translation", () => {
 	it("translates CI conclusions inside titles", () => {
 		const template = build("workflow_job", {

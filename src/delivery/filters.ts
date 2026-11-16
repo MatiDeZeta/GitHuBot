@@ -94,6 +94,9 @@ export function isIgnoredActor(ignored: string[], payload: Payload): boolean {
 	return false;
 }
 
+/** Longest value a filter pattern is matched against; see `matchesGlob`. */
+export const MAX_GLOB_VALUE = 1024;
+
 /**
  * Supports `*` (any run of characters) and `?` (single character), ignoring case.
  *
@@ -106,6 +109,11 @@ export function isIgnoredActor(ignored: string[], payload: Payload): boolean {
 export function matchesGlob(pattern: string, value: string): boolean {
 	const glob = pattern.trim().toLowerCase();
 	if (!glob) return false;
+	// The value comes from a payload, and whoever holds a repository's webhook
+	// secret can sign any payload they like. Git caps a ref name far below this and
+	// GitHub a login at 39 characters, so a longer value is not a branch or a login
+	// — only an attempt to make a megabyte-long string walk every pattern.
+	if (value.length > MAX_GLOB_VALUE) return false;
 	const text = value.toLowerCase();
 
 	let g = 0;

@@ -157,13 +157,14 @@ export function neutralizeBodyMarkdown(value: string): string {
 	);
 }
 
-/** Only http(s) URLs are accepted by Discord's media components. */
-export function safeImageUrl(url: string | null | undefined): string | undefined {
+/**
+ * Only http(s) URLs are accepted by Discord's media and link components, and
+ * nothing else — `javascript:`, `data:`, a custom scheme — belongs in a message.
+ */
+export function safeUrl(url: string | null | undefined): string | undefined {
 	if (!url) return undefined;
 	return /^https?:\/\//i.test(url) ? url : undefined;
 }
 
-export function safeLinkUrl(url: string | null | undefined): string | undefined {
-	if (!url) return undefined;
-	return /^https?:\/\//i.test(url) ? url : undefined;
-}
+export const safeImageUrl = safeUrl;
+export const safeLinkUrl = safeUrl;

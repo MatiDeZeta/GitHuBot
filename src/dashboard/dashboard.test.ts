@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -524,8 +524,9 @@ describe("dashboard routes", () => {
 	it("does not let the dashboard's form parser reach the webhook endpoint", async () => {
 		app = await build(DASHBOARD_ENV);
 		// The dashboard's permissive urlencoded parser lives in its own encapsulated
-		// scope. The webhook has a GitHub-specific one that only accepts a `payload`
-		// field, so an arbitrary form body is refused rather than parsed.
+		// scope. The webhook reads a form itself and only accepts a `payload` field,
+		// so an arbitrary form body is refused even when it is correctly signed.
+		const signature = `sha256=${createHmac("sha256", "the-webhook-secret").update("a=1").digest("hex")}`;
 		const res = await app.inject({
 			method: "POST",
 			url: "/webhooks/github/track-1",
@@ -533,7 +534,7 @@ describe("dashboard routes", () => {
 				"content-type": "application/x-www-form-urlencoded",
 				"x-github-event": "push",
 				"x-github-delivery": "5c2b7e52-0d55-4d6f-9a56-6f2f4e3f9a10",
-				"x-hub-signature-256": "sha256=00",
+				"x-hub-signature-256": signature,
 			},
 			payload: "a=1",
 		});

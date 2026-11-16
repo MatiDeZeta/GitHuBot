@@ -13,7 +13,8 @@ export interface MetricsSnapshot {
 	filtered: number;
 	duplicates: number;
 	deliveredToday: number;
-	lastEvent: { type: string; repo: string; at: Date } | null;
+	/** Which server it belonged to, so its repository is only named there. */
+	lastEvent: { type: string; repo: string; guildId: string; at: Date } | null;
 }
 
 export class MetricsRegistry {
@@ -25,17 +26,17 @@ export class MetricsRegistry {
 	private duplicates = 0;
 	private deliveredToday = 0;
 	private todayKey = dayKey(new Date());
-	private lastEvent: { type: string; repo: string; at: Date } | null = null;
+	private lastEvent: MetricsSnapshot["lastEvent"] = null;
 
 	recordReceived(): void {
 		this.received += 1;
 	}
 
-	recordDelivered(eventType: string, repo: string): void {
+	recordDelivered(eventType: string, repo: string, guildId: string): void {
 		this.delivered += 1;
 		this.rollOver();
 		this.deliveredToday += 1;
-		this.lastEvent = { type: eventType, repo, at: new Date() };
+		this.lastEvent = { type: eventType, repo, guildId, at: new Date() };
 	}
 
 	recordFailed(): void {

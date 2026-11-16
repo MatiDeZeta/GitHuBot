@@ -84,3 +84,16 @@ describe("applyFilters", () => {
 		expect(isIgnoredActor(["bot"], { sender: { login: "ada", type: "User" } })).toBe(false);
 	});
 });
+
+describe("filter input from a payload", () => {
+	it("does not walk a pattern over a value far longer than any branch or login", () => {
+		// Whoever holds a webhook secret can sign any payload, including a megabyte
+		// "branch". It matches nothing, and it must not cost a megabyte per pattern.
+		const huge = "a".repeat(2_000_000);
+		const started = Date.now();
+		expect(matchesGlob("*a*a*a*a*a*a*a*b", huge)).toBe(false);
+		expect(matchesGlob("*", huge)).toBe(false);
+		expect(Date.now() - started).toBeLessThan(200);
+		expect(matchesGlob("*", "a".repeat(1024))).toBe(true);
+	});
+});

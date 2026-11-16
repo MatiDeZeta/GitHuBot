@@ -63,19 +63,6 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 		return reply.code(status).send({ error: err.message });
 	});
 
-	app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
-		const raw = typeof body === "string" ? body : body.toString("utf8");
-		req.rawBody = raw;
-		try {
-			const json = raw.length > 0 ? JSON.parse(raw) : {};
-			done(null, json);
-		} catch {
-			// A bare SyntaxError carries no status, so it surfaced as a 500 and an
-			// error-level log that any unauthenticated caller could trigger at will.
-			done(badRequest("Request body is not valid JSON"), undefined);
-		}
-	});
-
 	// `onRequest` counts a request before its body is read. At `preHandler` a
 	// flood was only refused after buffering up to WEBHOOK_BODY_LIMIT per request.
 	// Route-level limits inherit this hook.
@@ -135,27 +122,22 @@ export async function createServer(ctx: ServerContext): Promise<FastifyInstance>
 	// Encapsulated so its form parser applies to this route only; the dashboard
 	// registers a different one for its own forms.
 	await app.register(async (hooks: FastifyInstance) => {
-		// GitHub's default content type. The body is `payload=<url-encoded JSON>` and
-		// the signature covers it exactly as sent, so the raw string is kept for
-		// verification and only the `payload` field is parsed.
-		hooks.addContentTypeParser(
-			"application/x-www-form-urlencoded",
-			{ parseAs: "string" },
-			(req, body, done) => {
-				const raw = typeof body === "string" ? body : body.toString("utf8");
-				req.rawBody = raw;
-				const payload = new URLSearchParams(raw).get("payload");
-				if (payload === null) {
-					done(badRequest("Form body has no payload field"), undefined);
-					return;
-				}
-				try {
-					done(null, JSON.parse(payload));
-				} catch {
-					done(badRequest("Request body is not valid JSON"), undefined);
-				}
-			},
-		);
+		// Both of GitHub's content types are only buffered here, never parsed. The
+		// signature covers the body exactly as sent, and until it has been checked
+		// the body is just bytes from a stranger: parsing 25 MiB of JSON costs far
+		// more than hashing it, so anyone who learned a webhook URL could otherwise
+		// keep the event loop busy without ever holding the secret.
+		const keepRaw = (
+			req: FastifyRequest,
+			body: string | Buffer,
+			done: (err: Error | null, body?: unknown) => void,
+		) => {
+			req.rawBody = typeof body === "string" ? body : body.toString("utf8");
+			done(null, undefined);
+		};
+		hooks.removeContentTypeParser("application/json");
+		hooks.addContentTypeParser("application/json", { parseAs: "string" }, keepRaw);
+		hooks.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, keepRaw);
 
 		hooks.decorateRequest("tracked", null);
 
@@ -213,10 +195,27 @@ function liveDashboardContext(ctx: ServerContext, env: DashboardEnv): DashboardC
 	};
 }
 
-function badRequest(message: string): FastifyError {
-	const error = new Error(message) as FastifyError;
-	error.statusCode = 400;
-	return error;
+/** GitHub's delivery ids are GUIDs; anything else is not worth storing or logging. */
+const DELIVERY_ID = /^[A-Za-z0-9-]{1,64}$/;
+
+type ParsedBody = { ok: true; payload: unknown } | { ok: false; error: string };
+
+/**
+ * Reads the JSON out of a delivery whose signature has already been verified.
+ * A form delivery is `payload=<url-encoded JSON>`; a JSON one is the JSON itself.
+ */
+function parseDelivery(contentType: string | undefined, raw: string): ParsedBody {
+	let json = raw;
+	if (contentType?.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+		const payload = new URLSearchParams(raw).get("payload");
+		if (payload === null) return { ok: false, error: "Form body has no payload field" };
+		json = payload;
+	}
+	try {
+		return { ok: true, payload: json.length > 0 ? JSON.parse(json) : {} };
+	} catch {
+		return { ok: false, error: "Request body is not valid JSON" };
+	}
 }
 
 /**
@@ -236,8 +235,15 @@ async function preflightWebhook(
 		return;
 	}
 
-	if (!header(request, "x-github-delivery") || !header(request, "x-github-event")) {
+	const deliveryId = header(request, "x-github-delivery");
+	if (!deliveryId || !header(request, "x-github-event")) {
 		reply.code(400).send({ error: "Missing GitHub webhook headers" });
+		return;
+	}
+	// The id is not covered by the signature, yet it becomes a primary key and a
+	// log field, so it has to look like one before anything else happens.
+	if (!DELIVERY_ID.test(deliveryId)) {
+		reply.code(400).send({ error: "Invalid delivery id" });
 		return;
 	}
 
@@ -309,6 +315,11 @@ async function handleWebhook(
 		await repository.clearPreviousSecret(trackingId);
 	}
 
+	// Only now is the body worth parsing: it came from someone holding the secret.
+	const parsed = parseDelivery(header(request, "content-type"), rawBody);
+	if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+	const payload = parsed.payload;
+
 	const isNew = await repository.tryRecordDelivery(deliveryId, trackingId);
 	if (!isNew) {
 		metrics.recordDuplicate();
@@ -321,14 +332,14 @@ async function handleWebhook(
 	// Only after the signature holds: the name comes from whoever has the secret.
 	// Checked before `ping`, which is the first delivery after setup, so a webhook
 	// added to the wrong repository shows up before any event is missed.
-	await noteReportedRepository(ctx, tracked, request.body);
+	await noteReportedRepository(ctx, tracked, payload);
 
 	const log = (outcome: DeliveryOutcome, detail: string | null = null) =>
 		logDelivery(ctx, {
 			trackingId,
 			deliveryId,
 			event: logToken(eventName) ?? "unknown",
-			action: logToken((request.body as { action?: unknown } | null)?.action),
+			action: logToken((payload as { action?: unknown } | null)?.action),
 			outcome,
 			detail,
 		});
@@ -357,7 +368,7 @@ async function handleWebhook(
 			},
 			tracked,
 			eventType,
-			request.body,
+			payload,
 			guild,
 		);
 	} catch (err) {

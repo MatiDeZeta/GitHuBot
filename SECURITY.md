@@ -22,6 +22,17 @@ GitHuBot stores encrypted webhook secrets and Discord credentials. Please **do n
   escaped (markdown control characters, link syntax, leading headings, zero-width and
   bidi characters) and role pings are scoped with `allowedMentions`. Bodies still render
   ordinary formatting such as emphasis and code blocks — that is deliberate.
+- **Whoever holds a webhook secret can sign any payload.** That is every server admin
+  for their own repositories, so payload *values* are treated as hostile as well as
+  payload text: a delivery body is not parsed until its signature has been verified,
+  and filter patterns are never matched against a value longer than a real branch name
+  or login could be.
+- **Repository names belong to their server.** `/stats` shows instance-wide counters
+  to anyone, but names a repository only to someone with Manage Server in the server
+  that tracks it.
+- **Logs hold ids and error messages, not message content.** The request that
+  discord.js attaches to an API error — the whole rendered message — is removed before
+  the error is logged.
 - **`/metrics` is public unless `METRICS_TOKEN` is set.** It exposes delivery counters and
   uptime, not secrets or repository names.
 - **Rate limiting depends on `TRUST_PROXY`.** In a proxied deployment without it, the

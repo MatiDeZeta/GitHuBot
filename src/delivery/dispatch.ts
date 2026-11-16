@@ -129,6 +129,6 @@ export async function deliverTemplate(
 		trackingId: tracked.trackingId,
 		success: true,
 	});
-	metrics.recordDelivered(eventType, `${tracked.owner}/${tracked.repo}`);
+	metrics.recordDelivered(eventType, `${tracked.owner}/${tracked.repo}`, tracked.guildId);
 	return { status: "delivered" };
 }

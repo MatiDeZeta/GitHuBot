@@ -132,6 +132,39 @@ describe("webhook endpoint", () => {
 		expect(res.statusCode).toBe(401);
 	});
 
+	it("does not parse a body until its signature has been verified", async () => {
+		// Not JSON at all. Unsigned by anyone holding the secret, it must be turned
+		// away on the signature, never reaching a parser that would report the syntax.
+		const garbage = "{".repeat(1000);
+		const forged = await post(garbage, {
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign("something else"),
+		});
+		expect(forged.statusCode).toBe(401);
+
+		// The same bytes from someone who does hold the secret are a plain bad request.
+		const signed = await post(garbage, {
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(garbage),
+		});
+		expect(signed.statusCode).toBe(400);
+		expect(signed.json()).toMatchObject({ error: "Request body is not valid JSON" });
+	});
+
+	it("refuses a delivery id that is not an identifier", async () => {
+		const body = pushBody();
+		for (const id of ["x".repeat(65), "has space", "<script>"]) {
+			const res = await post(body, {
+				"x-github-event": "push",
+				"x-github-delivery": id,
+				"x-hub-signature-256": sign(body),
+			});
+			expect(res.statusCode, id).toBe(400);
+		}
+	});
+
 	it("still refuses content types GitHub never sends", async () => {
 		const body = pushBody();
 		const res = await post(body, {

@@ -60,8 +60,9 @@ export function formatPullRequest(payload: PullRequestPayload): EventTemplate | 
 		fields.push({
 			label: tx("field.branches"),
 			value: tx("value.branchArrow", {
-				head: `\`${pr.head.ref}\``,
-				base: `\`${pr.base.ref}\``,
+				// A contributor names their own branch, and git allows a backtick in it.
+				head: code(pr.head.ref),
+				base: code(pr.base.ref),
 			}),
 		});
 	}

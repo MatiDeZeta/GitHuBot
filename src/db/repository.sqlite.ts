@@ -1,13 +1,19 @@
 import { and, count, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import type { EventType } from "../config/events.js";
-import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
+import {
+	clampError,
+	clip,
+	dayIndex,
+	emptyBuckets,
+	mapGuildRow,
+	mapRepoRow,
+	toAuditEntry,
+	toLogEntry,
+} from "./mapping.js";
 import * as schema from "./schema.sqlite.js";
 import {
-	AUDIT_SOURCES,
-	type AuditEntry,
 	type CreateTrackedRepoInput,
-	type DeliveryLogEntry,
 	type DeliveryOutcome,
 	type DeliveryResult,
 	type GuildSettings,
@@ -18,16 +24,6 @@ import {
 	type RotateSecretInput,
 	type TrackedRepo,
 } from "./types.js";
-
-/** UTC day index, shared by both dialects so buckets line up. */
-function dayIndex(ms: number): number {
-	return Math.floor(ms / 86_400_000);
-}
-
-/** Fixed-width buckets, oldest first, zero-filled for days with no traffic. */
-function emptyBuckets(days: number): number[] {
-	return new Array<number>(days).fill(0);
-}
 
 /**
  * GitHub treats owner and repository names case-insensitively, so `/repo remove
@@ -40,41 +36,6 @@ function repoMatches(guildId: string, owner: string, repo: string) {
 		sql`lower(${schema.trackedRepos.owner}) = lower(${owner})`,
 		sql`lower(${schema.trackedRepos.repo}) = lower(${repo})`,
 	);
-}
-
-function toLogEntry(row: typeof schema.deliveryLog.$inferSelect): DeliveryLogEntry {
-	return {
-		id: row.id,
-		trackingId: row.trackingId,
-		deliveryId: row.deliveryId,
-		event: row.event,
-		action: row.action,
-		// An outcome written by a newer version reads as a failure rather than vanishing.
-		outcome: isDeliveryOutcome(row.outcome) ? row.outcome : "failed",
-		detail: row.detail,
-		createdAt: row.createdAt,
-	};
-}
-
-function toAuditEntry(row: typeof schema.auditLog.$inferSelect): AuditEntry {
-	return {
-		id: row.id,
-		guildId: row.guildId,
-		userId: row.userId,
-		username: row.username,
-		source: (AUDIT_SOURCES as readonly string[]).includes(row.source)
-			? (row.source as AuditEntry["source"])
-			: "dashboard",
-		action: row.action,
-		target: row.target,
-		detail: row.detail,
-		createdAt: row.createdAt,
-	};
-}
-
-/** Short free text only; a long value is a bug upstream, not something to store. */
-function clip(value: string | null, max: number): string | null {
-	return value === null ? null : value.slice(0, max);
 }
 
 type SqliteDb = BetterSQLite3Database<typeof schema>;

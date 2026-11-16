@@ -38,6 +38,7 @@ import {
 import { categoryView } from "./repo-events.js";
 import {
 	channelAccessWarning,
+	denyIfNotAllowed,
 	ephemeralText,
 	ephemeralTextEdit,
 	ephemeralV2,
@@ -242,10 +243,7 @@ export async function handleRepoCommand(
 		return;
 	}
 
-	if (ctx.env.DISCORD_ALLOWED_USER_ID && interaction.user.id !== ctx.env.DISCORD_ALLOWED_USER_ID) {
-		await interaction.reply(ephemeralText(t(locale, "common.error.notAllowed")));
-		return;
-	}
+	if (await denyIfNotAllowed(ctx, interaction, locale)) return;
 
 	switch (interaction.options.getSubcommand()) {
 		case "add":
