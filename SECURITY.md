@@ -45,9 +45,20 @@ accepts browser traffic, so it is deliberately narrow:
   account. A user sees only guilds where Discord itself reports `MANAGE_GUILD`, and
   every repo-scoped request re-checks that list; `DISCORD_ALLOWED_USER_ID`, when set,
   restricts sign-in to that one account.
-- **Read-only plus two actions.** Pause/resume and send-test are the only writes. The
-  dashboard cannot add or remove repositories, change any setting, or display a webhook
-  secret — those stay behind `/repo` in Discord.
+- **It can change what `/repo` can change, and nothing more**: add and remove
+  repositories, events, filters, channels, role mentions, appearance and server
+  settings, plus reveal and rotate a webhook secret.
+- **Every change re-checks the permission live.** The server list in the session cookie
+  is only used to draw pages; before any write the bot asks Discord whether that user
+  still holds `MANAGE_GUILD` in that server, so someone demoted an hour ago cannot use
+  a session that has not expired yet.
+- **Channels and roles must belong to the server being edited.** An id from another
+  server is refused, so the dashboard cannot be used to post into a server the user
+  does not manage.
+- **Secrets are returned only in answer to a POST** carrying the session's form token
+  — on add, reveal and rotate — and never appear in a `GET` page, so they cannot end
+  up in a link, the history or a reload.
+- **Sign-out is a POST with the form token**, so another site cannot sign a user out.
 - **Sessions are signed, not stored**: an HMAC over a JSON payload, keyed by a value
   derived from `MASTER_KEY` rather than `MASTER_KEY` itself, so a signing flaw cannot
   become a decryption oracle. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure`
@@ -56,9 +67,12 @@ accepts browser traffic, so it is deliberately narrow:
   time, and the OAuth `state` parameter is checked the same way to prevent login CSRF.
 - **All rendered values are HTML-escaped**, including `lastError`, which can carry
   attacker-influenced repository text.
-- **The page ships no JavaScript at all**, so it is served under
-  `script-src 'none'` — an escaping mistake could not execute anything even if one
-  slipped through. Alongside it: `frame-ancestors 'none'` and `X-Frame-Options: DENY`
+- **Nothing inline is allowed.** The pages load one script and one stylesheet, both
+  from the bot's own origin, and carry no inline script, handler or `style` attribute,
+  so they are served under `default-src 'none'; script-src 'self'; style-src 'self'` —
+  an escaping mistake could not execute or restyle anything even if one slipped
+  through. Avatars from `cdn.discordapp.com` are the only cross-origin load.
+  Alongside it: `frame-ancestors 'none'` and `X-Frame-Options: DENY`
   (clickjacking), `form-action 'self'`, `base-uri 'none'`, `nosniff`,
   `Referrer-Policy: no-referrer`, `Cross-Origin-Opener/Resource-Policy: same-origin`,
   and HSTS on https.

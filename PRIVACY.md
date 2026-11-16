@@ -33,6 +33,10 @@ In the instance's own database (SQLite or Postgres):
 - GitHub's delivery ID (a random identifier), the tracking ID, and when it arrived.
   This prevents the same event from posting twice and draws the dashboard's activity
   chart.
+- A delivery log entry: the tracking ID, the delivery ID, the event name and action
+  (for example `pull_request` / `opened`), what happened to it (delivered, filtered,
+  failed, …), a short reason when there is one — a filter rule, or the error Discord
+  returned — and the time. It never holds any part of the payload.
 
 ## What is not stored
 
@@ -51,7 +55,12 @@ and servers, and is then dropped — it is never stored. Nothing about the sessi
 kept on the server: a signed cookie in the user's own browser holds their Discord user
 ID, username, avatar URL, the servers (ID and name) where they manage the bot, and an
 anti-forgery token. It expires after `DASHBOARD_SESSION_HOURS` (12 by default) or on
-sign-out. The page loads nothing from third parties.
+sign-out. The pages load nothing from third parties except the signed-in user's and
+their servers' images from Discord's CDN.
+
+Changes made in the dashboard are stored exactly as the same change made with `/repo`
+would be; the dashboard keeps no separate record of who changed what beyond the logs
+described below.
 
 ## Kept only in memory
 
@@ -81,7 +90,7 @@ Nothing else is contacted. There is no telemetry and no analytics.
 - **Removing the bot from a server** deletes all of that server's data — settings,
   tracked repositories and their delivery records — **7 days later**. Inviting the bot
   back within those 7 days cancels it. A Discord outage never counts as a removal.
-- **Delivery records** are deleted after **30 days**.
+- **Delivery records**, including the delivery log, are deleted after **30 days**.
 
 A server's admins can therefore erase everything the bot holds about their server by
 removing each repository, or by removing the bot.

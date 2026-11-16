@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.3.1-8b5cf6?style=flat-square" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.4.0-8b5cf6?style=flat-square" alt="Version"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-24_LTS-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node"></a>
   <a href="https://discord.js.org/"><img src="https://img.shields.io/badge/discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white" alt="discord.js"></a>
   <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-11-F69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm"></a>
@@ -274,7 +274,7 @@ pnpm dev
 | `WEBHOOK_BODY_LIMIT` | no | Max delivery size in bytes. Default `26214400` (GitHub's 25 MiB cap) |
 | `WEBHOOK_RATE_LIMIT` | no | Deliveries accepted per minute from one IP. Default `600` |
 | `METRICS_TOKEN` | no | When set, `/metrics` requires `Authorization: Bearer <token>` |
-| `DASHBOARD_ENABLED` | no | Serve the optional read-only web dashboard. Default `false` |
+| `DASHBOARD_ENABLED` | no | Serve the optional web dashboard. Default `false` |
 | `DASHBOARD_BASE_URL` | no | Public origin the dashboard is served from (required with the above) |
 | `DISCORD_CLIENT_SECRET` | no | OAuth2 client secret, for dashboard sign-in only |
 | `DASHBOARD_SESSION_HOURS` | no | Dashboard sign-in lifetime. Default `12` |
@@ -306,7 +306,7 @@ Malformed JSON in `EMOJI_OVERRIDES` or `PRESENCE_ROTATION` is treated as unset r
 
 ## Dashboard (optional)
 
-A read-only web view of delivery status, served by the same process. It is **off by
+A web control panel for the bot, served by the same process. It is **off by
 default** and serves no route at all until you enable it.
 
 ```
@@ -323,13 +323,25 @@ list your servers, and nothing else. You see only servers where you hold **Manag
 Server**, the same gate `/repo` uses; if `DISCORD_ALLOWED_USER_ID` is set, only that
 account may sign in at all.
 
-What it can do: view tracked repos, delivery counters, the last error verbatim, event
-selection, filters, routing, mentions and appearance — plus **pause/resume** and **send
-a test message**. What it cannot do: add or remove repositories, change any setting, or
-show a webhook secret. Those stay in Discord, behind `/repo`.
+What it can do, per server:
 
-It is server-rendered with no build step, no JavaScript and no CDN — the page works
-offline and adds no dependency to the project.
+- **Overview** — delivered, failed and skipped totals for the last 7 days, a 30-day
+  activity chart, the repositories that need attention and the latest deliveries.
+- **Repositories** — search and filter the list, **add** a repository (the webhook
+  secret is shown once, exactly as `/repo add` does) and **remove** one.
+- **Per repository** — events, filters, the default channel with per-category channels
+  and role mentions, appearance with a live message preview, webhook setup with
+  reveal/rotate secret, pause/resume, send a test message, and the delivery log.
+- **Server settings** — default theme, density, language and the failure-alert channel.
+
+Every change re-checks with Discord that you still hold Manage Server, and a channel
+or role is accepted only if it belongs to the server being edited. Webhook secrets are
+only ever returned in answer to a form submission, never in a page you can link to or
+reload.
+
+It is server-rendered with no build step and no CDN: one small script and one
+stylesheet, both served by the bot itself, so the project gains no dependency. Dark
+and light themes follow your system, and the layout works on a phone.
 
 ---
 

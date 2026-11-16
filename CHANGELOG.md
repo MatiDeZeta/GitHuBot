@@ -5,6 +5,47 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] — 2026-11-16
+
+The dashboard becomes a control panel. Migration `0006` runs automatically and adds
+one table. No new environment variables are required.
+
+### Added
+
+- **Manage everything from the dashboard.** Add a repository (the webhook secret is
+  shown once) and remove one; edit events, filters, the default channel, per-category
+  channels and role mentions; reveal or rotate a webhook secret; change a server's
+  default theme, density, language and failure-alert channel.
+- **Overview page** per server: delivered, failed and skipped totals for the last 7
+  days, a 30-day activity chart, a "needs attention" list and recent deliveries.
+- **Delivery log** per repository: what happened to each delivery and why — delivered,
+  filtered by which rule, failed with Discord's error. It records the event name,
+  action, outcome and reason, never payload contents; entries are pruned after 30 days
+  and deleted with the repository.
+- **Live message preview** on the appearance tab, in the chosen theme and density.
+- **New layout**: sidebar with a server switcher, dark and light themes that follow
+  the system, and a phone layout. The repository list is searchable and filterable.
+
+### Security
+
+- **Every dashboard change re-checks the permission with Discord.** The server list
+  in the session is used only to draw pages; a write asks Discord whether the user
+  still holds Manage Server, so a demoted user's unexpired session cannot change
+  anything.
+- **Channels and roles must belong to the server being edited**; an id from another
+  server is refused.
+- **Webhook secrets are returned only in answer to a POST** with the form token, never
+  in a `GET` page.
+- **Sign-out is now a POST** with the form token, so another site cannot sign you out.
+- **The Content-Security-Policy forbids everything inline.** The dashboard now ships
+  one script and one stylesheet, both served by the bot, and no inline script, handler
+  or style, under `default-src 'none'; script-src 'self'; style-src 'self'`.
+
+### Changed
+
+- The dashboard is no longer read-only and no longer script-free; `README.md`,
+  `SECURITY.md` and `PRIVACY.md` describe the new behaviour.
+
 ## [1.3.1] — 2026-11-15
 
 A security and reliability release. No migrations, no new environment variables,
@@ -470,7 +511,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.0
 [1.3.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.3.1
 [1.3.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.3.0
 [1.2.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.2.1
