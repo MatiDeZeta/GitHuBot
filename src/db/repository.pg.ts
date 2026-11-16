@@ -1,17 +1,20 @@
-import { and, count, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { EventType } from "../config/events.js";
 import { clampError, mapGuildRow, mapRepoRow } from "./mapping.js";
 import * as schema from "./schema.pg.js";
-import type {
-	CreateTrackedRepoInput,
-	DeliveryResult,
-	GuildSettings,
-	RepoFilters,
-	RepoRepository,
-	RepoStyleInput,
-	RotateSecretInput,
-	TrackedRepo,
+import {
+	type CreateTrackedRepoInput,
+	type DeliveryLogEntry,
+	type DeliveryOutcome,
+	type DeliveryResult,
+	type GuildSettings,
+	isDeliveryOutcome,
+	type RepoFilters,
+	type RepoRepository,
+	type RepoStyleInput,
+	type RotateSecretInput,
+	type TrackedRepo,
 } from "./types.js";
 
 /** UTC day index, shared by both dialects so buckets line up. */
@@ -35,6 +38,20 @@ function repoMatches(guildId: string, owner: string, repo: string) {
 		sql`lower(${schema.trackedRepos.owner}) = lower(${owner})`,
 		sql`lower(${schema.trackedRepos.repo}) = lower(${repo})`,
 	);
+}
+
+function toLogEntry(row: typeof schema.deliveryLog.$inferSelect): DeliveryLogEntry {
+	return {
+		id: row.id,
+		trackingId: row.trackingId,
+		deliveryId: row.deliveryId,
+		event: row.event,
+		action: row.action,
+		// An outcome written by a newer version reads as a failure rather than vanishing.
+		outcome: isDeliveryOutcome(row.outcome) ? row.outcome : "failed",
+		detail: row.detail,
+		createdAt: row.createdAt,
+	};
 }
 
 type PgDb = PostgresJsDatabase<typeof schema>;
@@ -111,6 +128,9 @@ export function createPgRepository(db: PgDb): RepoRepository {
 			// Nothing about a removed repository outlives it, not even its delivery ids.
 			if (row) {
 				await db.delete(schema.deliveries).where(eq(schema.deliveries.trackingId, row.trackingId));
+				await db
+					.delete(schema.deliveryLog)
+					.where(eq(schema.deliveryLog.trackingId, row.trackingId));
 			}
 			return row ? mapRepoRow(row) : null;
 		},
@@ -238,6 +258,9 @@ export function createPgRepository(db: PgDb): RepoRepository {
 					await tx
 						.delete(schema.deliveries)
 						.where(inArray(schema.deliveries.trackingId, trackingIds));
+					await tx
+						.delete(schema.deliveryLog)
+						.where(inArray(schema.deliveryLog.trackingId, trackingIds));
 				}
 				// Tracked repositories go with the guild through ON DELETE CASCADE.
 				await tx.delete(schema.guilds).where(inArray(schema.guilds.guildId, gone));
@@ -260,7 +283,50 @@ export function createPgRepository(db: PgDb): RepoRepository {
 			const result = await db
 				.delete(schema.deliveries)
 				.where(lt(schema.deliveries.createdAt, olderThan));
+			await db.delete(schema.deliveryLog).where(lt(schema.deliveryLog.createdAt, olderThan));
 			return result.count;
+		},
+
+		async recordDeliveryLog(entry) {
+			await db
+				.insert(schema.deliveryLog)
+				.values({ ...entry, detail: clampError(entry.detail ?? undefined) });
+		},
+
+		async listDeliveryLog(trackingIds, query) {
+			if (trackingIds.length === 0) return [];
+			const rows = await db
+				.select()
+				.from(schema.deliveryLog)
+				.where(
+					and(
+						inArray(schema.deliveryLog.trackingId, trackingIds),
+						query.before !== undefined ? lt(schema.deliveryLog.id, query.before) : undefined,
+						query.outcome ? eq(schema.deliveryLog.outcome, query.outcome) : undefined,
+					),
+				)
+				.orderBy(desc(schema.deliveryLog.id))
+				.limit(query.limit);
+			return rows.map(toLogEntry);
+		},
+
+		async deliveryOutcomeCounts(trackingIds, since) {
+			const counts: Partial<Record<DeliveryOutcome, number>> = {};
+			if (trackingIds.length === 0) return counts;
+			const rows = await db
+				.select({ outcome: schema.deliveryLog.outcome, total: count() })
+				.from(schema.deliveryLog)
+				.where(
+					and(
+						inArray(schema.deliveryLog.trackingId, trackingIds),
+						gte(schema.deliveryLog.createdAt, since),
+					),
+				)
+				.groupBy(schema.deliveryLog.outcome);
+			for (const row of rows) {
+				if (isDeliveryOutcome(row.outcome)) counts[row.outcome] = Number(row.total);
+			}
+			return counts;
 		},
 
 		async activityByDay(trackingIds, days) {

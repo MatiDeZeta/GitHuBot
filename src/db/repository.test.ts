@@ -184,3 +184,128 @@ describe("server lifecycle", () => {
 		expect(await db.repository.tryRecordDelivery("d1", "t-gone")).toBe(true);
 	});
 });
+
+describe("delivery log", () => {
+	let dir: string;
+	let url: string;
+	let db: DbHandle;
+
+	const entry = (
+		trackingId: string,
+		outcome: "delivered" | "failed" | "filtered",
+		event = "push",
+	) =>
+		db.repository.recordDeliveryLog({
+			trackingId,
+			deliveryId: randomBytes(6).toString("hex"),
+			event,
+			action: null,
+			outcome,
+			detail: outcome === "failed" ? "Missing Access" : null,
+		});
+
+	beforeEach(async () => {
+		dir = mkdtempSync(join(tmpdir(), "githubot-log-"));
+		url = `file:${join(dir, "test.db")}`;
+		await migrate(url);
+		db = createDb(url);
+		const secret = encryptSecret("s", parseMasterKey(randomBytes(32).toString("hex")));
+		for (const [guildId, repo, trackingId] of [
+			["g1", "app", "t1"],
+			["g1", "docs", "t2"],
+			["g2", "other", "t3"],
+		] as const) {
+			await db.repository.addRepo({
+				guildId,
+				owner: "acme",
+				repo,
+				channelId: "c1",
+				trackingId,
+				encryptedSecret: secret,
+				enabledEvents: [...DEFAULT_ENABLED_EVENTS],
+			});
+		}
+	});
+
+	afterEach(async () => {
+		await db.close();
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("lists newest first, only for the repositories asked about", async () => {
+		await entry("t1", "delivered", "push");
+		await entry("t2", "failed", "issues");
+		await entry("t3", "delivered", "release");
+
+		const log = await db.repository.listDeliveryLog(["t1", "t2"], { limit: 10 });
+		expect(log.map((row) => row.event)).toEqual(["issues", "push"]);
+		expect(log[0]?.detail).toBe("Missing Access");
+		expect(await db.repository.listDeliveryLog([], { limit: 10 })).toEqual([]);
+	});
+
+	it("pages backwards by id and filters by outcome", async () => {
+		for (let i = 0; i < 5; i++) await entry("t1", i % 2 === 0 ? "delivered" : "failed");
+
+		const first = await db.repository.listDeliveryLog(["t1"], { limit: 2 });
+		const second = await db.repository.listDeliveryLog(["t1"], {
+			limit: 2,
+			before: first.at(-1)?.id,
+		});
+		expect(first.length).toBe(2);
+		expect(second.length).toBe(2);
+		expect(second[0]?.id).toBeLessThan(first[1]?.id ?? 0);
+
+		const failed = await db.repository.listDeliveryLog(["t1"], { limit: 10, outcome: "failed" });
+		expect(failed.map((row) => row.outcome)).toEqual(["failed", "failed"]);
+	});
+
+	it("counts outcomes since a point in time", async () => {
+		await entry("t1", "delivered");
+		await entry("t1", "delivered");
+		await entry("t2", "filtered");
+		await entry("t3", "failed");
+
+		expect(await db.repository.deliveryOutcomeCounts(["t1", "t2"], new Date(0))).toEqual({
+			delivered: 2,
+			filtered: 1,
+		});
+		expect(
+			await db.repository.deliveryOutcomeCounts(["t1"], new Date(Date.now() + 60_000)),
+		).toEqual({});
+	});
+
+	it("clamps an oversized detail", async () => {
+		await db.repository.recordDeliveryLog({
+			trackingId: "t1",
+			deliveryId: "d",
+			event: "push",
+			action: null,
+			outcome: "failed",
+			detail: "x".repeat(5_000),
+		});
+		const [row] = await db.repository.listDeliveryLog(["t1"], { limit: 1 });
+		expect(row?.detail?.length).toBeLessThanOrEqual(500);
+	});
+
+	it("is pruned with the ledger and deleted with its repository", async () => {
+		await entry("t1", "delivered");
+		await entry("t2", "delivered");
+		const raw = new Database(url.replace("file:", ""));
+		raw.prepare("UPDATE delivery_log SET created_at = 1000 WHERE tracking_id = 't1'").run();
+		raw.close();
+
+		await db.repository.pruneDeliveries(new Date(2_000));
+		expect(await db.repository.listDeliveryLog(["t1"], { limit: 10 })).toEqual([]);
+		expect((await db.repository.listDeliveryLog(["t2"], { limit: 10 })).length).toBe(1);
+
+		await db.repository.removeRepo("g1", "acme", "docs");
+		expect(await db.repository.listDeliveryLog(["t2"], { limit: 10 })).toEqual([]);
+	});
+
+	it("is deleted when a departed server is purged", async () => {
+		await entry("t3", "delivered");
+		await db.repository.setGuildLeft("g2", new Date(1_000));
+		await db.repository.purgeGuildsLeftBefore(new Date());
+		expect(await db.repository.listDeliveryLog(["t3"], { limit: 10 })).toEqual([]);
+	});
+});

@@ -105,6 +105,48 @@ export interface DeliveryResult {
 	error?: string;
 }
 
+/** Everything a processed delivery can end as. `ping` is GitHub's setup handshake. */
+export const DELIVERY_OUTCOMES = [
+	"delivered",
+	"filtered",
+	"disabled",
+	"paused",
+	"no_message",
+	"unsupported",
+	"ping",
+	"bad_channel",
+	"failed",
+] as const;
+export type DeliveryOutcome = (typeof DELIVERY_OUTCOMES)[number];
+
+export function isDeliveryOutcome(value: unknown): value is DeliveryOutcome {
+	return typeof value === "string" && (DELIVERY_OUTCOMES as readonly string[]).includes(value);
+}
+
+export interface NewDeliveryLogEntry {
+	trackingId: string;
+	deliveryId: string;
+	/** The `X-GitHub-Event` name, e.g. `pull_request`. */
+	event: string;
+	/** The payload's `action`, e.g. `opened`, when it has one. */
+	action: string | null;
+	outcome: DeliveryOutcome;
+	/** Why: the filter that dropped it, or Discord's error. Never payload contents. */
+	detail: string | null;
+}
+
+export interface DeliveryLogEntry extends NewDeliveryLogEntry {
+	id: number;
+	createdAt: Date;
+}
+
+export interface DeliveryLogQuery {
+	limit: number;
+	/** Only entries older than this id, for paging backwards. */
+	before?: number;
+	outcome?: DeliveryOutcome;
+}
+
 export interface RepoRepository {
 	ensureGuild(guildId: string): Promise<void>;
 	getGuildSettings(guildId: string): Promise<GuildSettings | null>;
@@ -190,7 +232,16 @@ export interface RepoRepository {
 	purgeGuildsLeftBefore(cutoff: Date): Promise<number>;
 	/** Records the name GitHub reports for this webhook, or null when it matches. */
 	setObservedFullName(trackingId: string, fullName: string | null): Promise<void>;
-	/** Deletes ledger rows older than `olderThan`; returns how many were removed. */
+	/** Appends to the delivery log shown on the dashboard. */
+	recordDeliveryLog(entry: NewDeliveryLogEntry): Promise<void>;
+	/** Newest first, across the given repositories. */
+	listDeliveryLog(trackingIds: string[], query: DeliveryLogQuery): Promise<DeliveryLogEntry[]>;
+	/** How many logged deliveries ended in each outcome since `since`. */
+	deliveryOutcomeCounts(
+		trackingIds: string[],
+		since: Date,
+	): Promise<Partial<Record<DeliveryOutcome, number>>>;
+	/** Deletes ledger and log rows older than `olderThan`; returns how many ledger rows went. */
 	pruneDeliveries(olderThan: Date): Promise<number>;
 	/** Updates the health counters shown by `/repo health` and `/repo list`. */
 	recordDeliveryResult(result: DeliveryResult): Promise<void>;

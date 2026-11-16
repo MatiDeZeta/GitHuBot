@@ -210,6 +210,46 @@ describe("webhook endpoint", () => {
 		expect(res.statusCode).toBe(404);
 	});
 
+	it("logs what became of each delivery, without any of its contents", async () => {
+		const ping = JSON.stringify({ zen: "Keep it logically awesome.", hook_id: 1 });
+		await post(ping, {
+			"x-github-event": "ping",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(ping),
+		});
+		const body = JSON.stringify({ ...JSON.parse(pushBody()), action: "opened" });
+		await post(body, {
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(body),
+		});
+		const odd = JSON.stringify({ action: "<script>alert(1)</script>" });
+		await post(odd, {
+			"x-github-event": "some_future_event",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(odd),
+		});
+
+		const log = await db.repository.listDeliveryLog([TRACKING_ID], { limit: 10 });
+		// Newest first. The repository in this suite is paused.
+		expect(log.map((entry) => [entry.event, entry.action, entry.outcome])).toEqual([
+			["some_future_event", null, "unsupported"],
+			["push", "opened", "paused"],
+			["ping", null, "ping"],
+		]);
+		expect(JSON.stringify(log)).not.toContain("logically awesome");
+	});
+
+	it("does not log a delivery it refused", async () => {
+		const body = pushBody();
+		await post(body, {
+			"x-github-event": "push",
+			"x-github-delivery": randomUUID(),
+			"x-hub-signature-256": sign(`${body} `),
+		});
+		expect(await db.repository.listDeliveryLog([TRACKING_ID], { limit: 10 })).toEqual([]);
+	});
+
 	it("404s an unknown tracking id without reading the body", async () => {
 		const res = await app.inject({
 			method: "POST",

@@ -1,154 +1,83 @@
-import { EVENT_CATEGORIES, type EventCategoryId, eventsInCategory } from "../config/events.js";
-import type { TrackedRepo } from "../db/types.js";
-import type { MetricsSnapshot } from "../metrics.js";
+import { DISPLAY_MODES, type DisplayMode } from "../bot/render/template.js";
+import { THEME_IDS, type ThemeId } from "../bot/render/theme.js";
+import {
+	EVENT_CATEGORIES,
+	EVENT_TYPES,
+	type EventType,
+	eventsInCategory,
+} from "../config/events.js";
+import {
+	DELIVERY_OUTCOMES,
+	type DeliveryLogEntry,
+	type DeliveryOutcome,
+	type GuildSettings,
+	type TrackedRepo,
+} from "../db/types.js";
+import {
+	type AppLocale,
+	categoryLabel,
+	eventDescription,
+	eventLabel,
+	SUPPORTED_LOCALES,
+} from "../i18n/index.js";
+import { VERSION } from "../version.js";
+import { ASSETS } from "./assets.js";
+import type { DirectoryChannel, GuildDirectory } from "./directory.js";
+import { escapeHtml } from "./html.js";
 import type { DashboardSession } from "./session.js";
 
-/**
- * Server-rendered so the dashboard needs no build step, no bundler and no CDN —
- * a self-hoster runs the same single process either way. Fonts are the system
- * stack for the same reason: the page must work offline and phone nowhere, which
- * also keeps the CSP free of a font host.
- */
-const SANS = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, sans-serif";
-const MONO = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace";
-
-/** Days of activity drawn in a repository card's sparkline. */
-export const ACTIVITY_DAYS = 7;
-
-export function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
-}
-
-const CSS = `
-:root { color-scheme: dark; }
-* { box-sizing: border-box; }
-body { margin: 0; background: #000; color: #ededed; font-family: ${SANS}; -webkit-font-smoothing: antialiased; font-size: 14px; }
-a { color: inherit; text-decoration: none; }
-.mono { font-family: ${MONO}; }
-.dim { color: #6e6e6e; }
-.mut { color: #8f8f8f; }
-.sec { color: #a1a1a1; }
-.green { color: #22c55e; } .red { color: #ef4444; } .amber { color: #f59e0b; }
-
-.nav { border-bottom: 1px solid #1a1a1a; }
-.navin { display: flex; align-items: center; gap: 13px; height: 56px; max-width: 1248px; margin: 0 auto; padding: 0 24px; }
-.brand { display: flex; align-items: center; gap: 11px; font-size: 14.5px; font-weight: 700; letter-spacing: -0.02em; }
-.sep { color: #333; font-size: 16px; font-weight: 300; }
-.pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; background: #0d0d0d; border: 1px solid #1f1f1f; border-radius: 7px; font-size: 13px; font-weight: 500; }
-.grow { flex-grow: 1; }
-.wrap { max-width: 1248px; margin: 0 auto; padding: 36px 24px 56px; }
-
-.h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.035em; }
-.h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.025em; }
-.h3 { font-size: 14.5px; font-weight: 700; letter-spacing: -0.02em; }
-.klabel { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; color: #8f8f8f; }
-.kval { font-family: ${MONO}; font-size: 30px; font-weight: 500; letter-spacing: -0.04em; line-height: 1; }
-
-.card { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 14px; }
-.panel { display: grid; background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 14px; overflow: hidden; }
-.cell { padding: 22px 24px; }
-.cell + .cell { border-left: 1px solid #161616; }
-.count { padding: 2px 8px; background: #141414; border-radius: 100px; font-size: 11.5px; font-weight: 600; color: #8f8f8f; }
-.tag { padding: 3px 9px; border-radius: 100px; font-family: ${MONO}; font-size: 11px; }
-.tag.inc { background: rgba(34,197,94,0.1); color: #22c55e; }
-.tag.exc { background: rgba(239,68,68,0.1); color: #f87171; }
-.tag.neu { background: #161616; color: #a1a1a1; }
-.badge { padding: 3px 8px; border-radius: 100px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; }
-.badge.fail { background: rgba(239,68,68,0.12); color: #f87171; }
-.badge.pause { background: rgba(245,158,11,0.12); color: #f59e0b; }
-
-.mono-tile { border-radius: 9px; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #000; flex-shrink: 0; }
-.dot { border-radius: 50%; flex-shrink: 0; }
-.bar { display: flex; height: 4px; border-radius: 3px; overflow: hidden; gap: 2px; }
-.spark { display: flex; align-items: flex-end; gap: 3px; height: 30px; }
-.spark > div { flex-grow: 1; border-radius: 2px; min-height: 2px; }
-
-.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.grid2 { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; }
-.repo { padding: 18px; display: flex; flex-direction: column; gap: 15px; }
-.repo .foot { display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; color: #6e6e6e; border-top: 1px solid #1a1a1a; padding-top: 13px; margin-top: auto; }
-.note { display: flex; align-items: center; gap: 7px; padding: 9px 10px; border-radius: 8px; }
-
-.btn { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; background: #0d0d0d; border: 1px solid #262626; border-radius: 8px; font-size: 13px; font-weight: 500; color: #ededed; cursor: pointer; font-family: inherit; }
-.btn:hover { background: #141414; }
-.btn.primary { background: #ededed; border-color: #ededed; color: #000; font-weight: 700; }
-.btn.primary:hover { background: #fff; }
-
-.rowitem { display: flex; align-items: center; gap: 14px; padding: 11px 0; }
-.track { flex-grow: 1; height: 6px; background: #161616; border-radius: 3px; overflow: hidden; display: flex; }
-.foot2 { padding: 12px 20px; border-top: 1px solid #161616; font-size: 11.5px; color: #6e6e6e; }
-.chead { display: flex; align-items: center; justify-content: space-between; padding: 17px 20px; border-bottom: 1px solid #161616; }
-
-.center { display: flex; flex-direction: column; align-items: center; text-align: center; }
-.pre { background: #050505; border: 1px solid #1f1f1f; border-radius: 10px; padding: 16px; font-family: ${MONO}; font-size: 11.5px; color: #a1a1a1; line-height: 1.9; text-align: left; }
-.discord { display: flex; align-items: center; justify-content: center; gap: 10px; height: 44px; width: 100%; background: #ededed; border-radius: 10px; color: #000; font-size: 14px; font-weight: 700; }
-.discord:hover { background: #fff; }
-.banner { display: flex; gap: 13px; padding: 16px 18px; background: rgba(239,68,68,0.05); border: 1px solid #341b1b; border-radius: 12px; }
-.banner.ok { background: rgba(34,197,94,0.05); border-color: #16351f; }
-.banner.warn { background: rgba(245,158,11,0.05); border-color: #3a2a10; }
-
-@media (max-width: 1100px) {
-	.grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-	.grid2 { grid-template-columns: minmax(0, 1fr); }
-	.panel { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-	.cell + .cell { border-left: none; }
-}
-@media (max-width: 680px) {
-	.grid3 { grid-template-columns: minmax(0, 1fr); }
-	.panel { grid-template-columns: minmax(0, 1fr) !important; }
-	.wrap { padding: 24px 16px 40px; }
-}
-`;
-
-const MARK = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ededed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h9a4 4 0 0 1 0 8H9"/><path d="M11.5 11 9 13.5 11.5 16"/><rect x="2.5" y="16.5" width="19" height="5" rx="1.5"/></svg>`;
-const WARN = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>`;
-const WARN_AMBER = WARN.replace('stroke="#ef4444"', 'stroke="#f59e0b"');
-const PAUSE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>`;
-const SEND = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>`;
-const ARROW = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3d3d3d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`;
-
-export function layout(title: string, body: string): string {
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>${escapeHtml(title)}</title><style>${CSS}</style></head><body>${body}</body></html>`;
-}
-
-/** GitHuBot's own accent tokens, so a repo's tile matches the product's palette. */
-const TILE_COLORS = [
-	"#3b82f6",
-	"#8b5cf6",
-	"#22c55e",
-	"#a855f7",
-	"#14b8a6",
-	"#f59e0b",
-	"#ec4899",
-	"#0ea5e9",
-];
-
-/** Stable per-repository colour: the same repo always gets the same tile. */
-function tileColor(slug: string): string {
-	let hash = 0;
-	for (let i = 0; i < slug.length; i++) hash = (hash * 31 + slug.charCodeAt(i)) >>> 0;
-	return TILE_COLORS[hash % TILE_COLORS.length] as string;
-}
+export { escapeHtml } from "./html.js";
 
 /**
- * Derived from the repository name, not the owner: every repo in a guild usually
- * shares an owner, so owner-initial tiles collide (acme/docs and acme/design-system
- * both render "AD"). Word parts give distinct, recognisable pairs — api-gateway
- * becomes "AG", design-system "DS".
+ * Server-rendered so the dashboard needs no build step, no bundler and no CDN.
+ * Nothing here emits a `style` attribute or an inline script: the stylesheet and
+ * the one script are separate files, which is what lets the CSP forbid both.
  */
-function initials(_owner: string, repo: string): string {
-	const parts = repo.split(/[^a-zA-Z0-9]+/).filter(Boolean);
-	const letters =
-		parts.length > 1
-			? `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`
-			: (parts[0] ?? repo).slice(0, 2);
-	return (letters || "??").toUpperCase();
+
+/** Days drawn in the activity charts. */
+export const ACTIVITY_DAYS = 30;
+/** Days the headline numbers look back over. */
+export const SUMMARY_DAYS = 7;
+/** Rows per page of the delivery log. */
+export const LOG_PAGE_SIZE = 50;
+
+const esc = escapeHtml;
+
+// ------------------------------------------------------------------- icons --
+
+function svg(paths: string, size = 16): string {
+	return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
+
+const ICON = {
+	mark: (size = 20) =>
+		svg(
+			'<path d="M4 5.5h9a4 4 0 0 1 0 8H9"/><path d="M11.5 11 9 13.5 11.5 16"/><rect x="2.5" y="16.5" width="19" height="5" rx="1.5"/>',
+			size,
+		),
+	home: svg('<path d="M3 11 12 3l9 8"/><path d="M5 10v10h14V10"/>'),
+	repo: svg('<path d="M5 4h13a1 1 0 0 1 1 1v15H6a2 2 0 0 1 0-4h13"/><path d="M5 4v14"/>'),
+	pulse: svg('<path d="M3 12h4l3-8 4 16 3-8h4"/>'),
+	gear: svg(
+		'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+	),
+	plus: svg('<path d="M12 5v14M5 12h14"/>'),
+	pause: svg(
+		'<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
+	),
+	play: svg('<path d="m7 4 13 8-13 8z"/>'),
+	send: svg('<path d="m22 2-7 20-4-9-9-4z"/>'),
+	alert: svg(
+		'<path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+	),
+	check: svg('<path d="m5 12 5 5L20 7"/>'),
+	info: svg('<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>'),
+	chevron: svg('<path d="m6 9 6 6 6-6"/>', 14),
+	out: svg('<path d="M9 21H5V3h4M16 17l5-5-5-5M21 12H9"/>'),
+	hash: svg('<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>', 14),
+};
+
+// ----------------------------------------------------------------- helpers --
 
 export function relativeTime(date: Date | null, now = Date.now()): string {
 	if (!date) return "never";
@@ -174,6 +103,17 @@ function num(value: number): string {
 	return value.toLocaleString("en-US");
 }
 
+function plural(count: number, one: string, many = `${one}s`): string {
+	return `${num(count)} ${count === 1 ? one : many}`;
+}
+
+/** Relative for reading, exact on hover and for assistive technology. */
+function when(date: Date | null): string {
+	if (!date) return '<span class="faint">never</span>';
+	const iso = date.toISOString();
+	return `<time datetime="${iso}" title="${iso.replace("T", " ").slice(0, 19)} UTC">${relativeTime(date)}</time>`;
+}
+
 export type RepoHealth = "ok" | "failing" | "paused";
 
 /** A repo counts as failing while its last delivery attempt is the one that errored. */
@@ -185,6 +125,245 @@ export function healthOf(repo: TrackedRepo): RepoHealth {
 	return failing ? "failing" : "ok";
 }
 
+function healthBadge(health: RepoHealth): string {
+	if (health === "failing") return '<span class="badge bad"><i></i>Failing</span>';
+	if (health === "paused") return '<span class="badge warn"><i></i>Paused</span>';
+	return '<span class="badge ok"><i></i>Healthy</span>';
+}
+
+/** Stable per-name colour: the same repository or server always gets the same tile. */
+function tileClass(name: string): string {
+	let hash = 0;
+	for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+	return `t${hash % 8}`;
+}
+
+/**
+ * From the repository name, not the owner: every repo in a server usually shares
+ * an owner, so owner initials collide. `api-gateway` becomes "AG".
+ */
+function initials(name: string): string {
+	const parts = name.split(/[^a-zA-Z0-9]+/).filter(Boolean);
+	const letters =
+		parts.length > 1
+			? `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`
+			: (parts[0] ?? name).slice(0, 2);
+	return (letters || "?").toUpperCase();
+}
+
+function tile(name: string, options: { large?: boolean; off?: boolean } = {}): string {
+	const classes = ["tile", options.off ? "off" : tileClass(name), options.large ? "lg" : ""];
+	return `<span class="${classes.filter(Boolean).join(" ")}" aria-hidden="true">${esc(initials(name))}</span>`;
+}
+
+export function guildPath(guildId: string, rest = ""): string {
+	return `/dashboard/g/${encodeURIComponent(guildId)}${rest}`;
+}
+
+export function repoPath(repo: Pick<TrackedRepo, "guildId" | "owner" | "repo">, rest = ""): string {
+	return `${guildPath(repo.guildId)}/r/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}${rest}`;
+}
+
+function slugOf(repo: TrackedRepo): string {
+	return `${repo.owner}/${repo.repo}`;
+}
+
+function csrfField(session: DashboardSession): string {
+	return `<input type="hidden" name="csrf" value="${esc(session.csrfToken)}">`;
+}
+
+function options<T extends string>(
+	entries: readonly { value: T | ""; label: string }[],
+	selected: string | null | undefined,
+): string {
+	return entries
+		.map(
+			(entry) =>
+				`<option value="${esc(entry.value)}"${entry.value === (selected ?? "") ? " selected" : ""}>${esc(entry.label)}</option>`,
+		)
+		.join("");
+}
+
+// ------------------------------------------------------------------ charts --
+
+/** Bars scaled against the busiest day, so a quiet repository still shows a shape. */
+function barChart(values: number[], mini = false): string {
+	const peak = Math.max(1, ...values);
+	const height = mini ? 24 : 120;
+	const step = 10;
+	const bars = values
+		.map((value, index) => {
+			const bar = value === 0 ? 2 : Math.max(3, Math.round((value / peak) * height));
+			const cls = value === 0 ? "zero" : index === values.length - 1 ? "hot" : "";
+			const daysAgo = values.length - 1 - index;
+			const label = `${num(value)} ${value === 1 ? "delivery" : "deliveries"}, ${daysAgo === 0 ? "today" : `${daysAgo}d ago`}`;
+			return `<rect${cls ? ` class="${cls}"` : ""} x="${index * step + 1}" y="${height - bar}" width="${step - 2}" height="${bar}" rx="1.5"><title>${label}</title></rect>`;
+		})
+		.join("");
+	const total = values.reduce((sum, value) => sum + value, 0);
+	return `<svg class="chart${mini ? " mini" : ""}" viewBox="0 0 ${values.length * step} ${height}" preserveAspectRatio="none" role="img" aria-label="${num(total)} deliveries over ${values.length} days">${bars}</svg>`;
+}
+
+/** Delivered against failed, as one bar. */
+function meter(delivered: number, failed: number): string {
+	const total = delivered + failed;
+	const ok = total === 0 ? 0 : Math.round((delivered / total) * 100);
+	return `<svg class="meter" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><rect class="trk" width="100" height="6" rx="3"/>${total > 0 ? `<rect class="okf" width="${ok}" height="6" rx="3"/>${failed > 0 ? `<rect class="badf" x="${ok}" width="${100 - ok}" height="6" rx="3"/>` : ""}` : ""}</svg>`;
+}
+
+// ------------------------------------------------------------------- shell --
+
+export type NavId = "overview" | "repos" | "activity" | "settings";
+
+export interface Shell {
+	session: DashboardSession;
+	guildId: string;
+	active: NavId;
+	/** Counts for the sidebar badges. */
+	repoCount: number;
+	failingCount: number;
+}
+
+export interface Notice {
+	kind: "ok" | "bad" | "warn" | "info";
+	text: string;
+}
+
+function document_(title: string, body: string): string {
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><meta name="color-scheme" content="dark light"><title>${esc(title)}</title><link rel="stylesheet" href="${ASSETS.css.path}"></head><body>${body}<script src="${ASSETS.js.path}" defer></script></body></html>`;
+}
+
+function sidebar(shell: Shell): string {
+	const { session, guildId, active } = shell;
+	const current = session.guilds.find((guild) => guild.id === guildId);
+	const name = current?.name ?? "Unknown server";
+
+	const servers = session.guilds
+		.map(
+			(guild) =>
+				`<a href="${guildPath(guild.id)}"${guild.id === guildId ? ' aria-current="true"' : ""}>${tile(guild.name)}<span class="truncate">${esc(guild.name)}</span></a>`,
+		)
+		.join("");
+
+	const link = (id: NavId, href: string, icon: string, label: string, badge = "") =>
+		`<a href="${href}"${active === id ? ' aria-current="page"' : ""}>${icon}<span>${label}</span>${badge}</a>`;
+
+	const avatar = session.avatarUrl
+		? `<img class="avatar" src="${esc(session.avatarUrl)}" alt="" width="28" height="28" referrerpolicy="no-referrer">`
+		: tile(session.username);
+
+	return `<aside class="side">
+		<a class="brand" href="/dashboard">${ICON.mark()}<span>GitHuBot</span><span class="ver">v${esc(VERSION)}</span></a>
+		<details class="switch">
+			<summary>${tile(name)}<span class="truncate grow">${esc(name)}</span>${ICON.chevron}</summary>
+			<div class="menu">${servers}</div>
+		</details>
+		<nav class="nav" aria-label="Server">
+			<div class="navlabel">Server</div>
+			${link("overview", guildPath(guildId), ICON.home, "Overview")}
+			${link(
+				"repos",
+				guildPath(guildId, "/repos"),
+				ICON.repo,
+				"Repositories",
+				shell.failingCount > 0
+					? `<span class="n bad" title="${plural(shell.failingCount, "repository", "repositories")} failing">${shell.failingCount}</span>`
+					: `<span class="n">${shell.repoCount}</span>`,
+			)}
+			${link("activity", guildPath(guildId, "/activity"), ICON.pulse, "Deliveries")}
+			${link("settings", guildPath(guildId, "/settings"), ICON.gear, "Settings")}
+		</nav>
+		<div class="foot">
+			${avatar}
+			<span class="truncate grow">${esc(session.username)}</span>
+			<form class="inline" method="post" action="/dashboard/logout">${csrfField(session)}<button class="btn ghost sm" type="submit" title="Sign out">${ICON.out}<span class="sr">Sign out</span></button></form>
+		</div>
+	</aside>`;
+}
+
+function page(shell: Shell, title: string, body: string): string {
+	return document_(
+		`${title} · GitHuBot`,
+		`<div class="app">${sidebar(shell)}<main class="main"><div class="page">${body}</div></main></div>`,
+	);
+}
+
+function banner(notice: Notice | null, title?: string): string {
+	if (!notice) return "";
+	const icon = notice.kind === "ok" ? ICON.check : notice.kind === "info" ? ICON.info : ICON.alert;
+	return `<div class="banner ${notice.kind}" role="status"><span class="${notice.kind === "info" ? "" : notice.kind}">${icon}</span><div>${title ? `<div class="t">${esc(title)}</div>` : ""}<div>${esc(notice.text)}</div></div></div>`;
+}
+
+function header(title: string, sub: string, actions = ""): string {
+	return `<div class="head"><div><h1>${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div>${actions ? `<div class="row wrap">${actions}</div>` : ""}</div>`;
+}
+
+const LIVE_PILL = '<span class="live" title="Status refreshes every 20 seconds"><i></i>Live</span>';
+
+// --------------------------------------------------------------- log table --
+
+const OUTCOME: Record<DeliveryOutcome, { label: string; tone: string }> = {
+	delivered: { label: "Delivered", tone: "ok" },
+	filtered: { label: "Filtered", tone: "dim" },
+	disabled: { label: "Event off", tone: "dim" },
+	paused: { label: "Paused", tone: "warn" },
+	no_message: { label: "Nothing to post", tone: "dim" },
+	unsupported: { label: "Unsupported", tone: "dim" },
+	ping: { label: "Ping", tone: "info" },
+	bad_channel: { label: "Channel unusable", tone: "bad" },
+	failed: { label: "Failed", tone: "bad" },
+};
+
+const OUTCOME_HELP: Partial<Record<DeliveryOutcome, string>> = {
+	disabled: "This event type is switched off for the repository.",
+	no_message:
+		"The event carried nothing worth a message, such as an action GitHuBot does not announce.",
+	unsupported: "GitHuBot has no message for this GitHub event.",
+	ping: "GitHub's handshake when a webhook is created. It confirms the secret matches.",
+	paused: "The repository was paused, so nothing was posted.",
+};
+
+const FILTER_DETAIL: Record<string, string> = {
+	branch: "branch filter",
+	label: "label filter",
+	actor: "ignored author",
+};
+
+function logTable(
+	rows: DeliveryLogEntry[],
+	repos: Map<string, TrackedRepo> | null,
+	emptyText: string,
+): string {
+	if (rows.length === 0) {
+		return `<div class="empty"><p>${esc(emptyText)}</p></div>`;
+	}
+	const body = rows
+		.map((row) => {
+			const outcome = OUTCOME[row.outcome];
+			const repo = repos?.get(row.trackingId);
+			const detail =
+				row.outcome === "filtered" && row.detail
+					? (FILTER_DETAIL[row.detail] ?? row.detail)
+					: (row.detail ?? OUTCOME_HELP[row.outcome] ?? "");
+			return `<tr>
+				<td class="tight muted">${when(row.createdAt)}</td>
+				${repos ? `<td>${repo ? `<a class="link" href="${repoPath(repo)}">${esc(slugOf(repo))}</a>` : '<span class="faint">removed</span>'}</td>` : ""}
+				<td><span class="mono">${esc(row.event)}</span>${row.action ? `<span class="faint mono">.${esc(row.action)}</span>` : ""}</td>
+				<td class="tight"><span class="badge ${outcome.tone}">${outcome.label}</span></td>
+				<td class="muted">${esc(detail)}</td>
+			</tr>`;
+		})
+		.join("");
+	return `<div class="scroll"><table class="table"><thead><tr><th>When</th>${repos ? "<th>Repository</th>" : ""}<th>Event</th><th>Outcome</th><th>Detail</th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+const OUTCOME_OPTIONS = [
+	{ value: "" as const, label: "All outcomes" },
+	...DELIVERY_OUTCOMES.map((value) => ({ value, label: OUTCOME[value].label })),
+];
+
+// ---------------------------------------------------------------- overview --
+
 export interface RepoView {
 	repo: TrackedRepo;
 	channelName: string;
@@ -192,406 +371,705 @@ export interface RepoView {
 	activity: number[];
 }
 
-function navBar(session: DashboardSession, guildId: string | null, trail?: string): string {
-	const guild = session.guilds.find((g) => g.id === guildId);
-	const chip = guild
-		? `<span class="sep">/</span><span class="pill"><span class="mono-tile" style="width:16px;height:16px;border-radius:5px;background:#8b5cf6;font-size:8.5px;color:#fff">${escapeHtml((guild.name[0] ?? "?").toUpperCase())}</span>${escapeHtml(guild.name)}</span>`
-		: "";
-	const crumb = trail
-		? `<span class="sep">/</span><span class="mono sec" style="font-size:13px">${escapeHtml(trail)}</span>`
-		: "";
-	return `<div class="nav"><div class="navin"><a class="brand" href="/dashboard">${MARK}GitHuBot</a>${chip}${crumb}<div class="grow"></div><span class="sec" style="font-size:13px">${escapeHtml(session.username)}</span><a class="dim" style="font-size:13px" href="/dashboard/logout">Sign out</a></div></div>`;
+export interface OverviewData {
+	repos: RepoView[];
+	/** Outcome totals over the last `SUMMARY_DAYS` days. */
+	counts: Partial<Record<DeliveryOutcome, number>>;
+	recent: DeliveryLogEntry[];
+	uptimeMs: number;
+	notice: Notice | null;
 }
 
-/** Bars are scaled against the busiest day so a quiet repo still shows a shape. */
-function sparkline(activity: number[], tone: "green" | "muted"): string {
-	const peak = Math.max(1, ...activity);
-	const bars = activity
-		.map((value, index) => {
-			const height = Math.max(8, Math.round((value / peak) * 100));
-			const newest = index === activity.length - 1;
-			const shade =
-				tone === "muted"
-					? "#1f1f1f"
-					: newest
-						? "#22c55e"
-						: value / peak > 0.6
-							? "#1e4230"
-							: "#16241b";
-			return `<div style="height:${height}%;background:${shade}"></div>`;
+export function summarize(counts: Partial<Record<DeliveryOutcome, number>>) {
+	const delivered = counts.delivered ?? 0;
+	const failed = (counts.failed ?? 0) + (counts.bad_channel ?? 0);
+	const skipped =
+		(counts.filtered ?? 0) +
+		(counts.disabled ?? 0) +
+		(counts.paused ?? 0) +
+		(counts.no_message ?? 0) +
+		(counts.unsupported ?? 0);
+	const attempted = delivered + failed;
+	return {
+		delivered,
+		failed,
+		skipped,
+		rate: attempted === 0 ? null : (delivered / attempted) * 100,
+	};
+}
+
+function sumActivity(repos: RepoView[]): number[] {
+	const total = new Array<number>(ACTIVITY_DAYS).fill(0);
+	for (const view of repos) {
+		view.activity.forEach((value, index) => {
+			total[index] = (total[index] ?? 0) + value;
+		});
+	}
+	return total;
+}
+
+function chartAxis(): string {
+	return `<div class="axis"><span>${ACTIVITY_DAYS} days ago</span><span>today</span></div>`;
+}
+
+export function overviewPage(shell: Shell, data: OverviewData): string {
+	const { repos } = data;
+	const summary = summarize(data.counts);
+	const byTracking = new Map(repos.map((view) => [view.repo.trackingId, view.repo]));
+	const attention = repos.filter(
+		(view) => healthOf(view.repo) !== "ok" || view.repo.observedFullName,
+	);
+	const activity = sumActivity(repos);
+
+	const stats = `<div class="grid c4" id="stats" data-live>
+		<div class="card stat"><div class="k">Repositories</div><div class="v">${num(repos.length)}</div><div class="d">${shell.failingCount > 0 ? `<span class="bad">${shell.failingCount} failing</span>` : "none failing"}</div></div>
+		<div class="card stat"><div class="k">Delivered · ${SUMMARY_DAYS}d</div><div class="v ok">${num(summary.delivered)}</div><div class="d">${summary.rate === null ? "no attempts yet" : `${summary.rate.toFixed(1)}% success`}</div></div>
+		<div class="card stat"><div class="k">Failed · ${SUMMARY_DAYS}d</div><div class="v${summary.failed > 0 ? " bad" : ""}">${num(summary.failed)}</div><div class="d">could not reach the channel</div></div>
+		<div class="card stat"><div class="k">Skipped · ${SUMMARY_DAYS}d</div><div class="v">${num(summary.skipped)}</div><div class="d">filtered, paused or switched off</div></div>
+	</div>`;
+
+	const needs =
+		attention.length === 0
+			? ""
+			: `<div class="card"><div class="hd"><h2>Needs attention</h2><span class="badge warn">${attention.length}</span></div><div class="list">${attention
+					.map(({ repo }) => {
+						const health = healthOf(repo);
+						const why =
+							health === "failing"
+								? esc(repo.lastError ?? "The last delivery failed")
+								: health === "paused"
+									? "Paused — GitHub keeps sending, nothing is posted"
+									: `GitHub reports this webhook as <span class="mono">${esc(repo.observedFullName ?? "")}</span>`;
+						return `<a href="${repoPath(repo)}">${tile(repo.repo, { off: health === "paused" })}<span class="stack tight grow"><span class="name mono truncate">${esc(slugOf(repo))}</span><span class="muted">${why}</span></span>${health === "ok" ? '<span class="badge warn"><i></i>Renamed</span>' : healthBadge(health)}</a>`;
+					})
+					.join("")}</div></div>`;
+
+	const body =
+		repos.length === 0
+			? emptyRepos(shell)
+			: `${stats}
+			<div class="grid c2">
+				<div class="stack">
+					<div class="card"><div class="hd"><h2>Deliveries received</h2><span class="muted">${num(activity.reduce((a, b) => a + b, 0))} in ${ACTIVITY_DAYS} days</span></div><div class="bd" id="chart" data-live>${barChart(activity)}${chartAxis()}</div></div>
+					<div class="card"><div class="hd"><h2>Recent deliveries</h2><a class="link" href="${guildPath(shell.guildId, "/activity")}">View all</a></div><div id="recent" data-live>${logTable(data.recent, byTracking, "Nothing has arrived yet. Deliveries appear here as GitHub sends them.")}</div></div>
+				</div>
+				<div class="stack">
+					<div id="attention" data-live>${needs}</div>
+					<div class="card"><div class="hd"><h2>Busiest repositories</h2></div><div class="scroll"><table class="table"><tbody>${[
+						...repos,
+					]
+						.sort((a, b) => total(b.activity) - total(a.activity))
+						.slice(0, 6)
+						.map(
+							(view) =>
+								`<tr><td><a class="cell" href="${repoPath(view.repo)}">${tile(view.repo.repo)}<span class="name mono truncate">${esc(slugOf(view.repo))}</span></a></td><td class="tight">${barChart(view.activity.slice(-14), true)}</td><td class="num tight muted">${num(total(view.activity))}</td></tr>`,
+						)
+						.join("")}</tbody></table></div></div>
+					<div class="card"><div class="bd stack tight"><div class="row between"><span class="muted">Bot uptime</span><span class="mono">${formatUptime(data.uptimeMs)}</span></div><div class="row between"><span class="muted">Version</span><span class="mono">${esc(VERSION)}</span></div><div class="row between"><span class="muted">Delivery log kept for</span><span class="mono">30 days</span></div></div></div>
+				</div>
+			</div>`;
+
+	return page(
+		shell,
+		"Overview",
+		`${header("Overview", `Delivery status across ${plural(repos.length, "tracked repository", "tracked repositories")}`, `${LIVE_PILL}<a class="btn primary" href="${guildPath(shell.guildId, "/repos/new")}">${ICON.plus}Add repository</a>`)}
+		<div class="stack">${banner(data.notice)}${body}</div>`,
+	);
+}
+
+function total(values: number[]): number {
+	return values.reduce((sum, value) => sum + value, 0);
+}
+
+function emptyRepos(shell: Shell): string {
+	return `<div class="card empty"><h2>Nothing tracked here yet</h2><p>Add a repository, paste the webhook URL and secret into its GitHub settings, and its activity starts arriving in the channel you pick.</p><a class="btn primary" href="${guildPath(shell.guildId, "/repos/new")}">${ICON.plus}Add repository</a></div>`;
+}
+
+// ------------------------------------------------------------ repositories --
+
+const STATUS_OPTIONS = [
+	{ value: "" as const, label: "All statuses" },
+	{ value: "ok" as const, label: "Healthy" },
+	{ value: "failing" as const, label: "Failing" },
+	{ value: "paused" as const, label: "Paused" },
+];
+
+export function reposPage(
+	shell: Shell,
+	repos: RepoView[],
+	filter: { q: string; status: string },
+	notice: Notice | null,
+): string {
+	const needle = filter.q.trim().toLowerCase();
+	// Failing first: it is the reason someone opens this page.
+	const rank: Record<RepoHealth, number> = { failing: 0, paused: 1, ok: 2 };
+	const ordered = [...repos].sort(
+		(a, b) =>
+			rank[healthOf(a.repo)] - rank[healthOf(b.repo)] ||
+			slugOf(a.repo).localeCompare(slugOf(b.repo)),
+	);
+	const visible = (view: RepoView) =>
+		(!needle || `${slugOf(view.repo)} ${view.channelName}`.toLowerCase().includes(needle)) &&
+		(!filter.status || healthOf(view.repo) === filter.status);
+	const shown = ordered.filter(visible).length;
+
+	const rows = ordered
+		.map((view) => {
+			const { repo } = view;
+			const health = healthOf(repo);
+			return `<tr data-row data-search="${esc(`${slugOf(repo)} ${view.channelName}`.toLowerCase())}" data-status="${health}"${visible(view) ? "" : ' class="hidden"'}>
+				<td><a class="cell" href="${repoPath(repo)}">${tile(repo.repo, { off: health === "paused" })}<span class="stack tight"><span class="name mono">${esc(slugOf(repo))}</span><span class="faint">#${esc(view.channelName)} · ${plural(repo.enabledEvents.length, "event")}</span></span></a></td>
+				<td class="tight">${healthBadge(health)}</td>
+				<td class="tight">${barChart(view.activity.slice(-14), true)}</td>
+				<td class="num tight">${num(repo.deliveredCount)}</td>
+				<td class="num tight${repo.failedCount > 0 ? " bad" : " faint"}">${num(repo.failedCount)}</td>
+				<td class="tight muted">${when(repo.lastDeliveryAt)}</td>
+			</tr>`;
 		})
 		.join("");
-	return `<div class="spark">${bars}</div>`;
+
+	const table =
+		repos.length === 0
+			? emptyRepos(shell)
+			: `<form class="toolbar" method="get" action="${guildPath(shell.guildId, "/repos")}" data-filter role="search">
+				<input type="search" name="q" value="${esc(filter.q)}" placeholder="Filter by name or channel" aria-label="Filter repositories">
+				<select name="status" aria-label="Status">${options(STATUS_OPTIONS, filter.status)}</select>
+				<button class="btn" type="submit">Filter</button>
+			</form>
+			<div class="card"><div class="scroll" id="repos" data-live><table class="table"><thead><tr><th>Repository</th><th>Status</th><th>14 days</th><th class="num">Delivered</th><th class="num">Failed</th><th>Last delivery</th></tr></thead><tbody>${rows}</tbody></table></div>
+			<div class="empty${shown === 0 ? "" : " hidden"}" data-none><p>No repository matches that filter.</p></div></div>`;
+
+	return page(
+		shell,
+		"Repositories",
+		`${header("Repositories", `<span data-count>${shown}</span> of ${num(repos.length)} shown`, `${LIVE_PILL}<a class="btn primary" href="${guildPath(shell.guildId, "/repos/new")}">${ICON.plus}Add repository</a>`)}
+		<div class="stack">${banner(notice)}${table}</div>`,
+	);
 }
 
-export function overviewPage(
-	session: DashboardSession,
-	guildId: string,
-	repos: RepoView[],
-	metrics: MetricsSnapshot,
+// ------------------------------------------------------------ channel pick --
+
+const KIND_LABEL: Record<DirectoryChannel["kind"], string> = {
+	text: "#",
+	announcement: "📣 ",
+	forum: "🗂 ",
+	thread: "↳ ",
+};
+
+/**
+ * A picker when the bot can see the server's channels; otherwise a plain id field,
+ * so the form still works while Discord's cache is warming up.
+ */
+function channelSelect(
+	name: string,
+	directory: GuildDirectory,
+	selected: string | null,
+	empty: string | null,
 ): string {
-	const attempted = metrics.delivered + metrics.failed;
-	const rate = attempted > 0 ? ((metrics.delivered / attempted) * 100).toFixed(1) : "100.0";
-	const failingRepos = repos.filter((view) => healthOf(view.repo) === "failing").length;
+	if (!directory.available || directory.channels.length === 0) {
+		return `<input class="mono" type="text" name="${name}" value="${esc(selected ?? "")}" inputmode="numeric" pattern="\\d{17,20}" placeholder="Channel ID"${empty === null ? " required" : ""}>`;
+	}
+	const known = directory.channels.some((channel) => channel.id === selected);
+	const entries = [
+		...(empty === null ? [] : [{ value: "" as const, label: empty }]),
+		// Keep a saved channel the bot can no longer see selectable, rather than
+		// silently switching the setting to the first option on the next save.
+		...(selected && !known ? [{ value: selected, label: `Unknown channel (${selected})` }] : []),
+		...directory.channels.map((channel) => ({
+			value: channel.id,
+			label: `${KIND_LABEL[channel.kind]}${channel.name}`,
+		})),
+	];
+	return `<select name="${name}"${empty === null ? " required" : ""}>${options(entries, selected)}</select>`;
+}
 
-	// Anything failing sorts first: it is the reason someone opens this page.
-	const ordered = [...repos].sort((a, b) => {
-		const rank = (v: RepoView) => (healthOf(v.repo) === "failing" ? 0 : 1);
-		return rank(a) - rank(b);
-	});
+// ------------------------------------------------------------- new repo ----
 
-	const cards = ordered.map(repoCard).join("") + addCard();
-
-	return layout(
-		"GitHuBot",
-		`${navBar(session, guildId)}<div class="wrap">
-			<div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:24px;gap:20px;flex-wrap:wrap">
-				<div style="display:flex;flex-direction:column;gap:6px">
-					<span class="h1">Overview</span>
-					<span class="mut" style="font-size:13.5px">Delivery status across ${repos.length} tracked ${repos.length === 1 ? "repository" : "repositories"}</span>
+export function newRepoPage(
+	shell: Shell,
+	directory: GuildDirectory,
+	values: { repository: string; channel: string },
+	error: string | null,
+): string {
+	return page(
+		shell,
+		"Add repository",
+		`<div class="crumbs"><a href="${guildPath(shell.guildId, "/repos")}">Repositories</a><span>/</span><span>Add</span></div>
+		${header("Add a repository", "GitHuBot never signs in to GitHub. You add a webhook on the repository and it sends events here.")}
+		<div class="stack">
+			${error ? banner({ kind: "bad", text: error }) : ""}
+			<form class="card" method="post" action="${guildPath(shell.guildId, "/repos/new")}">
+				${csrfField(shell.session)}
+				<div class="bd fields">
+					<label class="f"><span>Repository</span><input class="mono" type="text" name="repository" value="${esc(values.repository)}" placeholder="owner/repo" pattern="[A-Za-z0-9_.\\-]+/[A-Za-z0-9_.\\-]+" required autofocus autocomplete="off" spellcheck="false"><small>Exactly as it appears in the GitHub URL.</small></label>
+					<label class="f"><span>Channel</span>${channelSelect("channel", directory, values.channel || null, null)}<small>Where its messages are posted. Categories can be routed elsewhere later.</small></label>
 				</div>
-				<div class="pill" style="border-radius:100px;padding:7px 12px">
-					<span class="dot" style="width:6px;height:6px;background:#22c55e"></span>
-					<span class="sec">Online</span><span style="color:#333">·</span>
-					<span class="mono">${formatUptime(metrics.uptimeMs)}</span>
-				</div>
-			</div>
-
-			<div class="panel" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:40px">
-				<div class="cell">
-					<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="dot" style="width:5px;height:5px;background:#22c55e"></span><span class="klabel">DELIVERED</span></div>
-					<div class="kval">${num(metrics.delivered)}</div>
-					<div style="display:flex;align-items:center;gap:6px;margin-top:12px">
-						<div style="height:3px;flex-grow:1;border-radius:2px;background:#22c55e"></div>
-						<span class="mut" style="font-size:11.5px">${rate}%</span>
-					</div>
-				</div>
-				<div class="cell">
-					<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="dot" style="width:5px;height:5px;background:${metrics.failed > 0 ? "#ef4444" : "#6e6e6e"}"></span><span class="klabel">FAILED</span></div>
-					<div class="kval ${metrics.failed > 0 ? "red" : ""}">${num(metrics.failed)}</div>
-					<div style="display:flex;align-items:center;gap:6px;margin-top:12px">
-						<div style="height:3px;width:14px;border-radius:2px;background:${metrics.failed > 0 ? "#ef4444" : "#1a1a1a"}"></div>
-						<div style="height:3px;flex-grow:1;border-radius:2px;background:#1a1a1a"></div>
-						<span class="mut" style="font-size:11.5px">${failingRepos} ${failingRepos === 1 ? "repo" : "repos"}</span>
-					</div>
-				</div>
-				<div class="cell">
-					<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="dot" style="width:5px;height:5px;background:#3b82f6"></span><span class="klabel">TODAY</span></div>
-					<div class="kval">${num(metrics.deliveredToday)}</div>
-					<div class="mut" style="font-size:11.5px;margin-top:13px">delivered since midnight UTC</div>
-				</div>
-				<div class="cell">
-					<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span class="dot" style="width:5px;height:5px;background:#6e6e6e"></span><span class="klabel">FILTERED</span></div>
-					<div class="kval sec">${num(metrics.filtered)}</div>
-					<div class="dim" style="display:flex;gap:10px;font-size:11.5px;margin-top:13px">
-						<span>${num(metrics.duplicates)} duplicates</span><span style="color:#2a2a2a">·</span><span>${num(metrics.received)} received</span>
-					</div>
-				</div>
-			</div>
-
-			<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-				<div style="display:flex;align-items:center;gap:10px"><span class="h2">Repositories</span><span class="count">${repos.length}</span></div>
-				<span class="dim" style="font-size:12.5px">Added with <span class="mono sec">/repo</span> in Discord</span>
-			</div>
-			${repos.length === 0 ? emptyState() : `<div class="grid3">${cards}</div>`}
+				<div class="ft"><span class="hint">Starts with pushes, branches, pull requests, issues and releases switched on.</span><div class="row"><a class="btn" href="${guildPath(shell.guildId, "/repos")}">Cancel</a><button class="btn primary" type="submit">Add repository</button></div></div>
+			</form>
 		</div>`,
 	);
 }
 
-function repoCard(view: RepoView): string {
-	const { repo, channelName, activity } = view;
-	const health = healthOf(repo);
-	const slug = `${repo.owner}/${repo.repo}`;
-	const href = `/dashboard/g/${encodeURIComponent(repo.guildId)}/r/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
-	const attempted = repo.deliveredCount + repo.failedCount;
+// --------------------------------------------------------------- repo page --
 
-	const marker =
-		health === "failing"
-			? `<span class="badge fail">FAILING</span>`
-			: health === "paused"
-				? `<span class="badge pause">PAUSED</span>`
-				: `<span class="dot" style="width:7px;height:7px;background:#22c55e;margin-top:4px"></span>`;
+export const REPO_TABS = [
+	"overview",
+	"events",
+	"filters",
+	"routing",
+	"appearance",
+	"webhook",
+	"deliveries",
+] as const;
+export type RepoTab = (typeof REPO_TABS)[number];
 
-	// Two flex-grow segments give the real delivered/failed split without arithmetic in CSS.
-	const ratio =
-		health === "paused"
-			? `<div class="bar"><div style="flex-grow:1;background:#2a2a2a;border-radius:3px"></div></div>`
-			: repo.failedCount > 0
-				? `<div class="bar"><div style="flex-grow:${repo.deliveredCount};background:#22c55e;border-radius:3px"></div><div style="flex-grow:${repo.failedCount};background:#ef4444;border-radius:3px"></div></div>`
-				: `<div class="bar"><div style="flex-grow:1;background:${attempted > 0 ? "#22c55e" : "#1f1f1f"};border-radius:3px"></div></div>`;
-
-	const detail =
-		health === "failing" && repo.lastError
-			? `<div class="note" style="background:rgba(239,68,68,0.07)">${WARN}<span class="mono" style="font-size:10.5px;color:#f87171;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(repo.lastError)}</span></div>`
-			: health === "paused"
-				? `<div class="note" style="background:#111"><span class="amber" style="display:flex">${PAUSE}</span><span class="mut" style="font-size:11.5px">Nothing is posted while paused</span></div>`
-				: sparkline(activity, "green");
-
-	return `<a class="card repo" href="${href}" style="${health === "failing" ? "border-color:#341b1b;" : ""}${health === "paused" ? "opacity:0.72;" : ""}">
-		<div style="display:flex;align-items:flex-start;gap:12px">
-			<div class="mono-tile" style="width:34px;height:34px;background:${health === "paused" ? "#2a2a2a" : tileColor(slug)};font-size:12.5px;${health === "paused" ? "color:#8f8f8f;" : ""}">${escapeHtml(initials(repo.owner, repo.repo))}</div>
-			<div style="display:flex;flex-direction:column;gap:3px;min-width:0;flex-grow:1">
-				<span class="mono" style="font-size:13px;font-weight:500;letter-spacing:-0.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(slug)}</span>
-				<span class="dim" style="font-size:12px">#${escapeHtml(channelName)}</span>
-			</div>
-			${marker}
-		</div>
-		${ratio}
-		<div style="display:flex;align-items:center;justify-content:space-between">
-			<span class="mono" style="font-size:12.5px">${num(repo.deliveredCount)}</span>
-			<span style="font-size:12px" class="${repo.failedCount > 0 ? "red" : "dim"}">${repo.failedCount > 0 ? `${num(repo.failedCount)} failed` : "no failures"}</span>
-		</div>
-		${detail}
-		<div class="foot">
-			<span>${repo.enabledEvents.length} events</span>
-			<span class="${health === "failing" ? "red" : ""}">${health === "failing" ? `failed ${relativeTime(repo.lastErrorAt)}` : relativeTime(repo.lastDeliveryAt)}</span>
-		</div>
-	</a>`;
+export function isRepoTab(value: unknown): value is RepoTab {
+	return typeof value === "string" && (REPO_TABS as readonly string[]).includes(value);
 }
 
-function addCard(): string {
-	return `<div style="border:1px dashed #222;border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px">
-		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3d3d3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-		<span class="dim" style="font-size:12.5px;text-align:center">Track another repository</span>
-		<span class="mono" style="font-size:11px;color:#3d3d3d">/repo add</span>
-	</div>`;
-}
-
-function emptyState(): string {
-	return `<div class="card center" style="padding:56px 40px">
-		<div style="font-size:20px;font-weight:700;letter-spacing:-0.028em">Nothing tracked here yet</div>
-		<div class="sec" style="font-size:13.5px;margin-top:10px;max-width:520px;line-height:1.65">Repositories are added from Discord. This dashboard reads status and can pause or test — it never changes what is tracked.</div>
-		<div class="pre" style="margin-top:26px">/repo add repository:owner/repo channel:#changelog</div>
-		<div class="dim" style="font-size:12.5px;margin-top:16px">Requires Manage Server.</div>
-	</div>`;
-}
-
-const CATEGORY_COLOR: Record<EventCategoryId, string> = {
-	code: "#6b7280",
-	pulls: "#8b5cf6",
-	issues: "#f59e0b",
-	cicd: "#22c55e",
-	releases: "#a855f7",
-	discussions: "#6366f1",
-	security: "#f97316",
-	community: "#eab308",
-	meta: "#64748b",
+const TAB_LABEL: Record<RepoTab, string> = {
+	overview: "Overview",
+	events: "Events",
+	filters: "Filters",
+	routing: "Channels & mentions",
+	appearance: "Appearance",
+	webhook: "Webhook",
+	deliveries: "Deliveries",
 };
 
-const CATEGORY_LABEL: Record<EventCategoryId, string> = {
-	code: "Code",
-	pulls: "Pull requests",
-	issues: "Issues",
-	cicd: "CI / CD",
-	releases: "Releases",
-	discussions: "Discussions",
-	security: "Security",
-	community: "Community",
-	meta: "Repository",
-};
+export interface RepoPageData {
+	view: RepoView;
+	tab: RepoTab;
+	directory: GuildDirectory;
+	settings: GuildSettings | null;
+	/** What the repository's messages currently look like, after inheritance. */
+	effective: { theme: ThemeId; mode: DisplayMode; locale: AppLocale };
+	log: DeliveryLogEntry[];
+	logFilter: { outcome: string; nextBefore: number | null };
+	webhookUrl: string;
+	/** Present only on the response to an explicit reveal, add or rotation. */
+	secret: string | null;
+	previewHtml: string;
+	notice: Notice | null;
+}
 
-export function repoDetailPage(
-	session: DashboardSession,
-	view: RepoView,
-	channelNames: Map<string, string>,
-	roleNames: Map<string, string>,
-	notice: { kind: "ok" | "error"; text: string } | null,
-): string {
-	const { repo, channelName } = view;
+export function repoPage(shell: Shell, data: RepoPageData): string {
+	const { view, tab } = data;
+	const { repo } = view;
 	const health = healthOf(repo);
-	const slug = `${repo.owner}/${repo.repo}`;
-	const base = `/dashboard/g/${encodeURIComponent(repo.guildId)}/r/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
+	const slug = slugOf(repo);
 
-	const categories = EVENT_CATEGORIES.map((category) => {
-		const all = eventsInCategory(category.id);
-		const on = all.filter((event) => repo.enabledEvents.includes(event));
-		const pct = Math.round((on.length / all.length) * 100);
-		return `<div class="rowitem">
-			<span style="font-size:13px;font-weight:500;width:122px;flex-shrink:0${on.length === 0 ? ";color:#6e6e6e" : ""}">${CATEGORY_LABEL[category.id]}</span>
-			<div class="track">${on.length > 0 ? `<div style="width:${pct}%;background:${CATEGORY_COLOR[category.id]};border-radius:3px"></div>` : ""}</div>
-			<span class="mono" style="font-size:11.5px;width:38px;text-align:right;flex-shrink:0;color:${on.length > 0 ? "#a1a1a1" : "#3d3d3d"}">${on.length}/${all.length}</span>
-		</div>`;
-	}).join("");
+	const tabs = REPO_TABS.map(
+		(id) =>
+			`<a href="${repoPath(repo, id === "overview" ? "" : `?tab=${id}`)}"${id === tab ? ' aria-current="page"' : ""}>${TAB_LABEL[id]}</a>`,
+	).join("");
 
-	const routes = Object.entries(repo.eventRoutes);
-	const mentions = Object.entries(repo.mentionRules);
+	const actions = `<form class="inline" method="post" action="${repoPath(repo, repo.paused ? "/resume" : "/pause")}">${csrfField(shell.session)}<button class="btn" type="submit">${repo.paused ? `${ICON.play}Resume` : `${ICON.pause}Pause`}</button></form>
+		<a class="btn" href="https://github.com/${esc(slug)}" rel="noreferrer noopener" target="_blank">Open on GitHub</a>`;
 
-	return layout(
-		`${slug} · GitHuBot`,
-		`${navBar(session, repo.guildId, repo.repo)}<div class="wrap">
-			<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap">
-				<div class="mono-tile" style="width:46px;height:46px;border-radius:12px;background:${health === "paused" ? "#2a2a2a" : tileColor(slug)};font-size:16px">${escapeHtml(initials(repo.owner, repo.repo))}</div>
-				<div style="display:flex;flex-direction:column;gap:5px;flex-grow:1;min-width:0">
-					<div style="display:flex;align-items:center;gap:11px">
-						<span class="mono" style="font-size:22px;font-weight:500;letter-spacing:-0.03em">${escapeHtml(slug)}</span>
-						${health === "failing" ? '<span class="badge fail">FAILING</span>' : health === "paused" ? '<span class="badge pause">PAUSED</span>' : ""}
-					</div>
-					<div class="dim" style="display:flex;align-items:center;gap:11px;font-size:12.5px;flex-wrap:wrap">
-						<span>#${escapeHtml(channelName)}</span><span style="color:#2a2a2a">·</span>
-						<span>${repo.enabledEvents.length} of 48 events</span><span style="color:#2a2a2a">·</span>
-						<span class="mono">${escapeHtml(repo.trackingId.slice(0, 12))}…</span>
-					</div>
-				</div>
-				<div style="display:flex;align-items:center;gap:8px">
-					<form method="post" action="${base}/${repo.paused ? "resume" : "pause"}" style="margin:0">
-						<input type="hidden" name="csrf" value="${escapeHtml(session.csrfToken)}">
-						<button class="btn" type="submit"><span class="sec" style="display:flex">${PAUSE}</span>${repo.paused ? "Resume" : "Pause"}</button>
-					</form>
-					<form method="post" action="${base}/test" style="margin:0">
-						<input type="hidden" name="csrf" value="${escapeHtml(session.csrfToken)}">
-						<button class="btn primary" type="submit">${SEND}Send test</button>
-					</form>
-				</div>
-			</div>
+	const content = {
+		overview: () => overviewTab(shell, data),
+		events: () => eventsTab(shell, repo),
+		filters: () => filtersTab(shell, repo),
+		routing: () => routingTab(shell, data),
+		appearance: () => appearanceTab(shell, data),
+		webhook: () => webhookTab(shell, data),
+		deliveries: () => deliveriesTab(data),
+	}[tab]();
 
-			${noticeBanner(notice)}
-			${notice ? "" : failureBanner(repo, health, channelName)}
-			${renameBanner(repo)}
-
-			<div class="panel" style="grid-template-columns:repeat(4,minmax(0,1fr));margin:${notice || health === "failing" ? "28px 0 36px" : "0 0 36px"}">
-				<div class="cell" style="padding:20px 24px">
-					<div class="klabel" style="margin-bottom:11px">DELIVERED</div>
-					<div class="kval green" style="font-size:27px">${num(repo.deliveredCount)}</div>
-				</div>
-				<div class="cell" style="padding:20px 24px">
-					<div class="klabel" style="margin-bottom:11px">FAILED</div>
-					<div class="kval ${repo.failedCount > 0 ? "red" : ""}" style="font-size:27px">${num(repo.failedCount)}</div>
-				</div>
-				<div class="cell" style="padding:20px 24px">
-					<div class="klabel" style="margin-bottom:11px">LAST DELIVERY</div>
-					<div style="font-size:17px;font-weight:600;letter-spacing:-0.02em" class="${health === "failing" ? "red" : "sec"}">${relativeTime(repo.lastDeliveryAt)}</div>
-				</div>
-				<div class="cell" style="padding:20px 24px">
-					<div class="klabel" style="margin-bottom:11px">LAST SUCCESS</div>
-					<div class="sec" style="font-size:17px;font-weight:600;letter-spacing:-0.02em">${relativeTime(repo.lastSuccessAt)}</div>
-				</div>
-			</div>
-
-			<div class="grid2">
-				<div class="card" style="overflow:hidden;display:flex;flex-direction:column">
-					<div class="chead"><span class="h3">Events</span><span class="count mono">${repo.enabledEvents.length} / 48</span></div>
-					<div style="padding:6px 20px 14px">${categories}</div>
-					<div class="foot2" style="margin-top:auto">Change with <span class="mono sec">/repo events ${escapeHtml(slug)}</span></div>
-				</div>
-
-				<div style="display:flex;flex-direction:column;gap:20px">
-					<div class="card" style="overflow:hidden">
-						<div class="chead"><span class="h3">Filters</span></div>
-						<div style="padding:16px 20px;display:flex;flex-direction:column;gap:15px">
-							${filterRow("Only branches", repo.filters.branchInclude, "inc", "all branches pass")}
-							${filterRow("Never branches", repo.filters.branchExclude, "exc", "none")}
-							${filterRow("Only labels", repo.filters.labels, "neu", "all labels pass")}
-							${filterRow("Ignore authors", repo.filters.ignoredActors, "neu", "none")}
-						</div>
-						<div class="foot2">Change with <span class="mono sec">/repo filters</span></div>
-					</div>
-
-					<div class="card" style="overflow:hidden">
-						<div class="chead"><span class="h3">Routing &amp; mentions</span></div>
-						<div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
-							${routes.length === 0 && mentions.length === 0 ? `<span class="dim" style="font-size:12.5px">No overrides or role pings</span>` : ""}
-							${routes.map(([key, channelId]) => `<div style="display:flex;align-items:center;gap:10px"><span style="width:8px;height:8px;border-radius:2px;background:${categoryTint(key)};flex-shrink:0"></span><span class="sec" style="font-size:12.5px;flex-grow:1">${escapeHtml(labelFor(key))}</span>${ARROW}<span style="font-size:12.5px">#${escapeHtml(channelNames.get(channelId) ?? channelId)}</span></div>`).join("")}
-							${mentions.map(([key, roles]) => `<div style="display:flex;align-items:center;gap:10px${routes.length > 0 ? ";padding-top:13px;border-top:1px solid #161616" : ""}"><span style="width:8px;height:8px;border-radius:2px;background:${categoryTint(key)};flex-shrink:0"></span><span class="sec" style="font-size:12.5px;flex-grow:1">${escapeHtml(labelFor(key))} pings</span><span style="display:flex;gap:6px;flex-wrap:wrap">${roles.map((r) => `<span class="tag" style="background:rgba(139,92,246,0.12);color:#a78bfa;font-family:${SANS}">@${escapeHtml(roleNames.get(r) ?? r)}</span>`).join("")}</span></div>`).join("")}
-						</div>
-						<div class="foot2">Everything else posts to <span class="sec">#${escapeHtml(channelName)}</span></div>
-					</div>
-
-					<div class="card" style="padding:17px 20px;display:flex;align-items:center;gap:24px">
-						<div style="display:flex;flex-direction:column;gap:6px">
-							<span class="klabel" style="color:#6e6e6e">THEME</span>
-							<span class="mono" style="font-size:13px">${escapeHtml(repo.theme ?? "server default")}</span>
-						</div>
-						<div style="width:1px;height:30px;background:#1f1f1f"></div>
-						<div style="display:flex;flex-direction:column;gap:6px">
-							<span class="klabel" style="color:#6e6e6e">DENSITY</span>
-							<span class="mono" style="font-size:13px">${escapeHtml(repo.displayMode ?? "server default")}</span>
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>`,
+	return page(
+		shell,
+		slug,
+		`<div class="crumbs"><a href="${guildPath(repo.guildId, "/repos")}">Repositories</a><span>/</span><span class="mono">${esc(slug)}</span></div>
+		<div class="head">
+			<div class="row top">${tile(repo.repo, { large: true, off: health === "paused" })}<div><h1 class="mono">${esc(slug)}</h1><div class="sub row wrap" id="status" data-live>${healthBadge(health)}<span>#${esc(view.channelName)}</span><span class="faint">·</span><span>${repo.enabledEvents.length} of ${EVENT_TYPES.length} events</span><span class="faint">·</span><span>last delivery ${when(repo.lastDeliveryAt)}</span></div></div></div>
+			<div class="row wrap">${tab === "overview" || tab === "deliveries" ? LIVE_PILL : ""}${actions}</div>
+		</div>
+		<nav class="tabs" aria-label="Repository">${tabs}</nav>
+		<div class="stack">${banner(data.notice)}${content}</div>`,
 	);
 }
 
-/** Routes and mentions are keyed by either a category id or a single event type. */
-function categoryTint(key: string): string {
-	return CATEGORY_COLOR[key as EventCategoryId] ?? "#6e6e6e";
-}
-
-function labelFor(key: string): string {
-	return CATEGORY_LABEL[key as EventCategoryId] ?? key;
-}
-
-function filterRow(label: string, values: string[], kind: string, empty: string): string {
-	const body =
-		values.length === 0
-			? `<span style="font-size:12px;color:#3d3d3d">${empty}</span>`
-			: values.map((v) => `<span class="tag ${kind}">${escapeHtml(v)}</span>`).join("");
-	return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="dim" style="font-size:12px;width:96px;flex-shrink:0">${label}</span>${body}</div>`;
-}
-
-function noticeBanner(notice: { kind: "ok" | "error"; text: string } | null): string {
-	if (!notice) return "";
-	return `<div class="banner ${notice.kind === "ok" ? "ok" : ""}"><span style="font-size:13px;color:${notice.kind === "ok" ? "#4ade80" : "#f87171"}">${escapeHtml(notice.text)}</span></div>`;
+function failureBanner(view: RepoView): string {
+	const { repo } = view;
+	if (healthOf(repo) !== "failing") return "";
+	return `<div class="banner bad"><span class="bad">${ICON.alert}</span><div class="stack tight"><div class="t">Deliveries are failing</div><div>GitHub is sending, but the message cannot be posted. Give the bot <b>View Channel</b> and <b>Send Messages</b> in <b>#${esc(view.channelName)}</b>, or pick another channel under <a class="link" href="${repoPath(repo, "?tab=routing")}">Channels &amp; mentions</a>. Then use <b>Redeliver</b> on GitHub to post what was missed.</div>${repo.lastError ? `<div><code>${esc(repo.lastError)}</code></div>` : ""}</div></div>`;
 }
 
 /** GitHub named a different repository in a verified delivery; see `observedFullName`. */
 function renameBanner(repo: TrackedRepo): string {
 	if (!repo.observedFullName) return "";
-	return `<div class="banner warn">${WARN_AMBER}<div style="display:flex;flex-direction:column;gap:7px;flex-grow:1">
-		<span style="font-size:13.5px;font-weight:700;color:#f59e0b">GitHub reports a different repository</span>
-		<span class="sec" style="font-size:13px;line-height:1.6">Deliveries arrive as <span class="mono" style="color:#ededed">${escapeHtml(repo.observedFullName)}</span>, not <span class="mono" style="color:#ededed">${escapeHtml(repo.owner)}/${escapeHtml(repo.repo)}</span>. If the repository was renamed or transferred, messages still post normally and only the name shown here is out of date. If the webhook was added to the wrong repository, delete it there.</span>
-	</div></div>`;
+	return `<div class="banner warn"><span class="warn">${ICON.alert}</span><div class="stack tight"><div class="t">GitHub reports a different repository</div><div>Deliveries arrive as <code>${esc(repo.observedFullName)}</code>, not <code>${esc(slugOf(repo))}</code>. If the repository was renamed or transferred, messages still post normally and only the name here is out of date. If the webhook was added to the wrong repository, delete it there.</div></div></div>`;
 }
 
-function failureBanner(repo: TrackedRepo, health: RepoHealth, channelName: string): string {
-	if (health !== "failing") return "";
-	return `<div class="banner">${WARN}<div style="display:flex;flex-direction:column;gap:7px;flex-grow:1">
-		<span style="font-size:13.5px;font-weight:700;color:#f87171">Deliveries are failing</span>
-		<span class="sec" style="font-size:13px;line-height:1.6">Receiving from GitHub but cannot post to the channel. Grant <span class="mono" style="color:#ededed">View Channel</span> and <span class="mono" style="color:#ededed">Send Messages</span> on <span class="mono" style="color:#ededed">#${escapeHtml(channelName)}</span>, or move it with <span class="mono" style="color:#ededed">/repo channel ${escapeHtml(repo.owner)}/${escapeHtml(repo.repo)}</span>.</span>
-		${repo.lastError ? `<div style="display:inline-flex;align-self:flex-start;padding:7px 11px;background:#0d0d0d;border:1px solid #1f1f1f;border-radius:7px;margin-top:3px"><span class="mono" style="font-size:11.5px;color:#f87171">${escapeHtml(repo.lastError)}</span></div>` : ""}
-	</div></div>`;
+const EVENT_OPTIONS = EVENT_TYPES.map((event) => ({ value: event, label: event }));
+
+function overviewTab(shell: Shell, data: RepoPageData): string {
+	const { view } = data;
+	const { repo } = view;
+	const routes = Object.keys(repo.eventRoutes).length;
+	const mentions = Object.keys(repo.mentionRules).length;
+	const filters =
+		repo.filters.branchInclude.length +
+		repo.filters.branchExclude.length +
+		repo.filters.labels.length +
+		repo.filters.ignoredActors.length;
+
+	const summaryRow = (label: string, value: string, tab: RepoTab) =>
+		`<tr><td class="muted">${label}</td><td>${value}</td><td class="tight"><a class="link" href="${repoPath(repo, `?tab=${tab}`)}">Edit</a></td></tr>`;
+
+	return `${failureBanner(view)}${renameBanner(repo)}
+	<div class="grid c4" id="stats" data-live>
+		<div class="card stat"><div class="k">Delivered</div><div class="v ok">${num(repo.deliveredCount)}</div><div class="d">${meter(repo.deliveredCount, repo.failedCount)}</div></div>
+		<div class="card stat"><div class="k">Failed</div><div class="v${repo.failedCount > 0 ? " bad" : ""}">${num(repo.failedCount)}</div><div class="d">since it was added</div></div>
+		<div class="card stat"><div class="k">Last success</div><div class="v">${when(repo.lastSuccessAt)}</div><div class="d">last message posted</div></div>
+		<div class="card stat"><div class="k">Received · ${ACTIVITY_DAYS}d</div><div class="v">${num(total(view.activity))}</div><div class="d">deliveries from GitHub</div></div>
+	</div>
+	<div class="grid c2">
+		<div class="stack">
+			<div class="card"><div class="hd"><h2>Deliveries received</h2></div><div class="bd" id="chart" data-live>${barChart(view.activity)}${chartAxis()}</div></div>
+			<div class="card"><div class="hd"><h2>Recent deliveries</h2><a class="link" href="${repoPath(repo, "?tab=deliveries")}">View all</a></div><div id="recent" data-live>${logTable(data.log.slice(0, 8), null, "Nothing has arrived yet. Add the webhook on GitHub and its ping shows up here.")}</div></div>
+		</div>
+		<div class="stack">
+			<form class="card" method="post" action="${repoPath(repo, "/test")}">
+				${csrfField(shell.session)}
+				<div class="hd"><h2>Send a test message</h2></div>
+				<div class="bd stack tight"><label class="f"><span class="sr">Event</span><select name="event">${options(EVENT_OPTIONS, repo.enabledEvents[0] ?? "push")}</select></label><span class="hint">Posts a sample, marked as a test, to the channel that event is routed to.</span></div>
+				<div class="ft"><span></span><button class="btn primary" type="submit">${ICON.send}Send test</button></div>
+			</form>
+			<div class="card"><div class="hd"><h2>Configuration</h2></div><div class="scroll"><table class="table"><tbody>
+				${summaryRow("Channel", `#${esc(view.channelName)}`, "routing")}
+				${summaryRow("Events", `${repo.enabledEvents.length} of ${EVENT_TYPES.length} on`, "events")}
+				${summaryRow("Filters", filters === 0 ? '<span class="faint">none</span>' : plural(filters, "rule"), "filters")}
+				${summaryRow("Routes & pings", routes + mentions === 0 ? '<span class="faint">none</span>' : `${plural(routes, "route")}, ${plural(mentions, "ping")}`, "routing")}
+				${summaryRow("Look", `${esc(THEME_LABEL[data.effective.theme])}, ${esc(data.effective.mode)}${repo.theme || repo.displayMode ? "" : ' <span class="faint">(inherited)</span>'}`, "appearance")}
+			</tbody></table></div></div>
+		</div>
+	</div>`;
+}
+
+function eventsTab(shell: Shell, repo: TrackedRepo): string {
+	const enabled = new Set<string>(repo.enabledEvents);
+	const groups = EVENT_CATEGORIES.map((category) => {
+		const events = eventsInCategory(category.id);
+		const on = events.filter((event) => enabled.has(event)).length;
+		return `<section class="group" data-group>
+			<div class="gh"><span class="dotc ${category.id}"></span><h3>${esc(categoryLabel("en", category.id))}</h3><span class="muted"><span data-group-count>${on}</span> of ${events.length}</span><span class="grow"></span><button class="btn ghost sm" type="button" data-set="all">All</button><button class="btn ghost sm" type="button" data-set="none">None</button></div>
+			<div class="gb checks">${events.map((event) => eventCheck(event, enabled.has(event))).join("")}</div>
+		</section>`;
+	}).join("");
+
+	return `<form class="stack" method="post" action="${repoPath(repo, "/events")}">
+		${csrfField(shell.session)}
+		<div class="card"><div class="ft"><span><b data-total>${repo.enabledEvents.length}</b> of ${EVENT_TYPES.length} events switched on. An event that is off is received and ignored.</span><div class="row wrap"><button class="btn" type="submit" name="preset" value="minimal">Minimal</button><button class="btn" type="submit" name="preset" value="standard">Standard</button><button class="btn" type="submit" name="preset" value="everything">Everything</button><button class="btn primary" type="submit">Save events</button></div></div></div>
+		${groups}
+		<div class="row"><button class="btn primary" type="submit">Save events</button><span class="hint">GitHub only sends the events selected on the webhook itself. "Send me everything" there covers all of these.</span></div>
+	</form>`;
+}
+
+function eventCheck(event: EventType, checked: boolean): string {
+	return `<label class="check"><input type="checkbox" name="events" value="${event}"${checked ? " checked" : ""}><span><b>${esc(eventLabel("en", event))}</b><small>${esc(eventDescription("en", event))}</small></span></label>`;
+}
+
+function filtersTab(shell: Shell, repo: TrackedRepo): string {
+	const field = (name: string, label: string, hint: string, placeholder: string, value: string[]) =>
+		`<label class="f"><span>${label}</span><input class="mono" type="text" name="${name}" value="${esc(value.join(", "))}" placeholder="${esc(placeholder)}" maxlength="600" autocomplete="off" spellcheck="false"><small>${hint}</small></label>`;
+	return `<form class="card" method="post" action="${repoPath(repo, "/filters")}">
+		${csrfField(shell.session)}
+		<div class="hd"><h2>Filters</h2><span class="muted">Comma-separated. <code>*</code> matches any run of characters, <code>?</code> one.</span></div>
+		<div class="bd fields">
+			${field("branchInclude", "Only these branches", "Leave empty to let every branch through.", "main, release/*", repo.filters.branchInclude)}
+			${field("branchExclude", "Never these branches", "Wins over the list above.", "dependabot/*, *-wip", repo.filters.branchExclude)}
+			${field("labels", "Only these labels", "Applies to issues and pull requests only; pushes and releases are unaffected.", "bug, security", repo.filters.labels)}
+			${field("ignoredActors", "Ignore these authors", "GitHub logins. The word <code>bot</code> matches every bot account.", "bot, renovate*", repo.filters.ignoredActors)}
+		</div>
+		<div class="ft"><span class="hint">Up to 25 entries per field. A filtered delivery is recorded in the log and not posted.</span><button class="btn primary" type="submit">Save filters</button></div>
+	</form>`;
+}
+
+function routingTab(shell: Shell, data: RepoPageData): string {
+	const { repo } = data.view;
+	const roleOptions = (selected: string | undefined) => {
+		const known = data.directory.roles.some((role) => role.id === selected);
+		return options(
+			[
+				{ value: "", label: "No ping" },
+				...(selected && !known ? [{ value: selected, label: `Unknown role (${selected})` }] : []),
+				...data.directory.roles.map((role) => ({ value: role.id, label: `@${role.name}` })),
+			],
+			selected,
+		);
+	};
+
+	const rows = EVENT_CATEGORIES.map((category) => {
+		const role = repo.mentionRules[category.id]?.[0];
+		return `<tr>
+			<td><span class="row"><span class="dotc ${category.id}"></span><b>${esc(categoryLabel("en", category.id))}</b></span></td>
+			<td>${channelSelect(`route.${category.id}`, data.directory, repo.eventRoutes[category.id] ?? null, "Default channel")}</td>
+			<td>${
+				data.directory.available
+					? `<select name="mention.${category.id}">${roleOptions(role)}</select>`
+					: `<input class="mono" type="text" name="mention.${category.id}" value="${esc(role ?? "")}" inputmode="numeric" pattern="\\d{17,20}" placeholder="Role ID">`
+			}</td>
+		</tr>`;
+	}).join("");
+
+	// Rules keyed by a single event type come from older versions or direct edits;
+	// they keep working, so say so rather than hide them.
+	const categoryIds = new Set<string>(EVENT_CATEGORIES.map((category) => category.id));
+	const extra = [...Object.keys(repo.eventRoutes), ...Object.keys(repo.mentionRules)].filter(
+		(key) => !categoryIds.has(key),
+	);
+
+	return `<form class="card" method="post" action="${repoPath(repo, "/channel")}">
+		${csrfField(shell.session)}
+		<div class="hd"><h2>Default channel</h2></div>
+		<div class="bd"><label class="f"><span class="sr">Default channel</span>${channelSelect("channel", data.directory, repo.channelId, null)}<small>Everything posts here unless a category below says otherwise. Forum and media channels get one post per event.</small></label></div>
+		<div class="ft"><span></span><button class="btn primary" type="submit">Save channel</button></div>
+	</form>
+	<form class="card" method="post" action="${repoPath(repo, "/routing")}">
+		${csrfField(shell.session)}
+		<div class="hd"><h2>Per-category channels and mentions</h2></div>
+		<div class="scroll"><table class="table"><thead><tr><th>Category</th><th>Post to</th><th>Ping role</th></tr></thead><tbody>${rows}</tbody></table></div>
+		<div class="ft"><span class="hint">${extra.length > 0 ? `${plural(new Set(extra).size, "per-event rule")} set elsewhere (${esc([...new Set(extra)].join(", "))}) stay as they are. ` : ""}A ping is sent only for the role chosen here; message text can never mention anyone.</span><button class="btn primary" type="submit">Save routing</button></div>
+	</form>`;
+}
+
+const THEME_LABEL: Record<ThemeId, string> = {
+	default: "Classic",
+	github: "GitHub",
+	neon: "Neon",
+	catppuccin: "Catppuccin",
+	nord: "Nord",
+	accessible: "Accessible (colour-blind safe)",
+	mono: "Monochrome",
+	language: "By language",
+};
+
+const LOCALE_LABEL: Record<AppLocale, string> = { en: "English", es: "Español" };
+
+function styleFields(
+	inherit: string,
+	current: { theme: string | null; mode: string | null; locale: string | null },
+): string {
+	return `<label class="f"><span>Theme</span><select name="theme">${options(
+		[
+			{ value: "", label: inherit },
+			...THEME_IDS.map((value) => ({ value, label: THEME_LABEL[value] })),
+		],
+		current.theme,
+	)}</select><small>The accent colour each kind of event gets.</small></label>
+	<label class="f"><span>Density</span><select name="mode">${options(
+		[
+			{ value: "", label: inherit },
+			...DISPLAY_MODES.map((value) => ({
+				value,
+				label: value === "detailed" ? "Detailed" : "Compact",
+			})),
+		],
+		current.mode,
+	)}</select><small>Compact drops the body and secondary fields.</small></label>
+	<label class="f"><span>Language</span><select name="locale">${options(
+		[
+			{ value: "", label: inherit },
+			...SUPPORTED_LOCALES.map((value) => ({ value, label: LOCALE_LABEL[value] })),
+		],
+		current.locale,
+	)}</select><small>The language messages are written in.</small></label>`;
+}
+
+function previewCard(html: string): string {
+	return `<div class="card"><div class="hd"><h2>Preview</h2><span class="muted">sample events, drawn as Discord shows them</span></div><div class="bd" id="preview">${html}</div></div>`;
+}
+
+function appearanceTab(shell: Shell, data: RepoPageData): string {
+	const { repo } = data.view;
+	return `<div class="grid even">
+		<form class="card" method="post" action="${repoPath(repo, "/style")}" data-preview="${guildPath(repo.guildId, "/preview")}">
+			${csrfField(shell.session)}
+			<input type="hidden" name="repo" value="${esc(slugOf(repo))}">
+			<div class="hd"><h2>Appearance</h2></div>
+			<div class="bd stack">${styleFields("Use the server default", { theme: repo.theme, mode: repo.displayMode, locale: repo.locale })}</div>
+			<div class="ft"><a class="link" href="${guildPath(repo.guildId, "/settings")}">Server defaults</a><button class="btn primary" type="submit">Save appearance</button></div>
+		</form>
+		${previewCard(data.previewHtml)}
+	</div>`;
+}
+
+function webhookTab(shell: Shell, data: RepoPageData): string {
+	const { repo } = data.view;
+	const slug = slugOf(repo);
+	const secret = data.secret
+		? `<div class="banner info"><span>${ICON.info}</span><div class="stack tight grow"><div class="t">Webhook secret</div><div class="copy"><input class="mono" id="secret" type="password" value="${esc(data.secret)}" readonly autocomplete="off"><button class="btn" type="button" data-reveal="secret">Show</button><button class="btn" type="button" data-copy="secret">Copy</button></div><div class="hint">Shown for this page view only. Paste it into the webhook's <b>Secret</b> field on GitHub.</div></div></div>`
+		: "";
+
+	return `${secret}
+	<div class="grid c2">
+		<div class="card">
+			<div class="hd"><h2>Connect on GitHub</h2><a class="btn sm" href="https://github.com/${esc(slug)}/settings/hooks" rel="noreferrer noopener" target="_blank">Open webhook settings</a></div>
+			<div class="bd stack">
+				<label class="f"><span>Payload URL</span><span class="copy"><input class="mono" id="payload" type="text" value="${esc(data.webhookUrl)}" readonly><button class="btn" type="button" data-copy="payload">Copy</button></span></label>
+				<ol class="steps muted">
+					<li>On the repository, open <b>Settings → Webhooks → Add webhook</b>.</li>
+					<li>Paste the payload URL. Either content type works; <code>application/json</code> is the tidier one.</li>
+					<li>Paste the secret. Reveal it below if you no longer have it.</li>
+					<li>Choose <b>Send me everything</b>, or pick individual events to match the Events tab.</li>
+					<li>Save. GitHub sends a ping straight away, which appears under Deliveries.</li>
+				</ol>
+			</div>
+			<div class="ft">
+				<span class="hint">${repo.encryptedPreviousSecret ? "A rotation is in progress: the previous secret still works until GitHub first uses the new one." : "The secret is stored encrypted and never leaves this server except on this page."}</span>
+				<div class="row wrap">
+					<form class="inline" method="post" action="${repoPath(repo, "/secret/reveal")}">${csrfField(shell.session)}<button class="btn" type="submit">Reveal secret</button></form>
+					<form class="inline" method="post" action="${repoPath(repo, "/secret/rotate")}" data-confirm="Generate a new secret? The current one keeps working until GitHub first uses the new one.">${csrfField(shell.session)}<button class="btn" type="submit">Rotate secret</button></form>
+				</div>
+			</div>
+		</div>
+		<div class="stack">
+			<div class="card"><div class="hd"><h2>Details</h2></div><div class="bd stack tight">
+				<div class="row between"><span class="muted">Tracking ID</span><span class="mono">${esc(repo.trackingId.slice(0, 8))}…</span></div>
+				<div class="row between"><span class="muted">Added</span><span>${when(repo.createdAt)}</span></div>
+				<div class="row between"><span class="muted">Last delivery</span><span>${when(repo.lastDeliveryAt)}</span></div>
+				<div class="row between"><span class="muted">Last error</span><span>${when(repo.lastErrorAt)}</span></div>
+			</div></div>
+			<form class="card" method="post" action="${repoPath(repo, "/remove")}" data-confirm="Stop tracking ${esc(slug)}? Its settings and delivery log are deleted. This cannot be undone.">
+				${csrfField(shell.session)}
+				<div class="hd"><h2 class="bad">Stop tracking</h2></div>
+				<div class="bd stack tight"><span>Deletes this repository's settings, secret and delivery log from GitHuBot at once. The webhook on GitHub is yours to delete; until then its deliveries are answered with 404.</span><label class="check"><input type="checkbox" name="confirm" value="yes" required><span><b>I understand this cannot be undone</b></span></label></div>
+				<div class="ft"><span></span><button class="btn danger" type="submit">Remove ${esc(slug)}</button></div>
+			</form>
+		</div>
+	</div>`;
+}
+
+function logFilterForm(action: string, outcome: string, hidden = ""): string {
+	return `<form class="toolbar" method="get" action="${action}">${hidden}<select name="outcome" aria-label="Outcome">${options(OUTCOME_OPTIONS, outcome)}</select><button class="btn" type="submit">Filter</button></form>`;
+}
+
+function pager(href: string | null): string {
+	return href
+		? `<div class="ft"><span class="hint">Showing ${LOG_PAGE_SIZE} per page</span><a class="btn" href="${esc(href)}">Older</a></div>`
+		: "";
+}
+
+function deliveriesTab(data: RepoPageData): string {
+	const { repo } = data.view;
+	const { outcome, nextBefore } = data.logFilter;
+	const older =
+		nextBefore === null
+			? null
+			: repoPath(
+					repo,
+					`?tab=deliveries&before=${nextBefore}${outcome ? `&outcome=${encodeURIComponent(outcome)}` : ""}`,
+				);
+	return `${logFilterForm(repoPath(repo), outcome, '<input type="hidden" name="tab" value="deliveries">')}
+	<div class="card"><div id="log" data-live>${logTable(data.log, null, outcome ? "No delivery with that outcome in the last 30 days." : "Nothing has arrived yet.")}</div>${pager(older)}</div>
+	<p class="hint">The log records what kind of event arrived and what became of it — never its contents — and is kept for 30 days.</p>`;
+}
+
+// ---------------------------------------------------------------- activity --
+
+export function activityPage(
+	shell: Shell,
+	data: {
+		rows: DeliveryLogEntry[];
+		repos: TrackedRepo[];
+		outcome: string;
+		nextBefore: number | null;
+	},
+): string {
+	const byTracking = new Map(data.repos.map((repo) => [repo.trackingId, repo]));
+	const older =
+		data.nextBefore === null
+			? null
+			: guildPath(
+					shell.guildId,
+					`/activity?before=${data.nextBefore}${data.outcome ? `&outcome=${encodeURIComponent(data.outcome)}` : ""}`,
+				);
+	return page(
+		shell,
+		"Deliveries",
+		`${header("Deliveries", "Everything GitHub sent to this server's repositories, newest first", LIVE_PILL)}
+		${logFilterForm(guildPath(shell.guildId, "/activity"), data.outcome)}
+		<div class="card"><div id="log" data-live>${logTable(data.rows, byTracking, data.outcome ? "No delivery with that outcome in the last 30 days." : "Nothing has arrived yet. Deliveries appear here as GitHub sends them.")}</div>${pager(older)}</div>
+		<p class="hint">The log records what kind of event arrived and what became of it — never its contents — and is kept for 30 days.</p>`,
+	);
+}
+
+// ---------------------------------------------------------------- settings --
+
+export function settingsPage(
+	shell: Shell,
+	data: {
+		settings: GuildSettings | null;
+		directory: GuildDirectory;
+		previewHtml: string;
+		notice: Notice | null;
+	},
+): string {
+	const settings = data.settings;
+	return page(
+		shell,
+		"Settings",
+		`${header("Server settings", "Defaults for every repository in this server. A repository can override its look.")}
+		<div class="stack">
+			${banner(data.notice)}
+			<div class="grid even">
+				<div class="stack">
+					<form class="card" method="post" action="${guildPath(shell.guildId, "/settings/style")}" data-preview="${guildPath(shell.guildId, "/preview")}">
+						${csrfField(shell.session)}
+						<div class="hd"><h2>Default appearance</h2></div>
+						<div class="bd stack">${styleFields("Use the bot's default", { theme: settings?.defaultTheme ?? null, mode: settings?.defaultDisplayMode ?? null, locale: settings?.locale ?? null })}</div>
+						<div class="ft"><span class="hint">Language also sets the language of <code>/repo</code> replies.</span><button class="btn primary" type="submit">Save defaults</button></div>
+					</form>
+					<form class="card" method="post" action="${guildPath(shell.guildId, "/settings/alerts")}">
+						${csrfField(shell.session)}
+						<div class="hd"><h2>Failure alerts</h2></div>
+						<div class="bd"><label class="f"><span class="sr">Alert channel</span>${channelSelect("channel", data.directory, settings?.alertChannelId ?? null, "Off")}<small>Posts once when a repository's deliveries start failing, and once when they recover. Never per event, and it pings nobody.</small></label></div>
+						<div class="ft"><span></span><button class="btn primary" type="submit">Save alerts</button></div>
+					</form>
+				</div>
+				${previewCard(data.previewHtml)}
+			</div>
+		</div>`,
+	);
+}
+
+// -------------------------------------------------------------- standalone --
+
+function centered(title: string, inner: string): string {
+	return document_(title, `<div class="center"><div class="card">${inner}</div></div>`);
 }
 
 export function signInPage(): string {
-	return layout(
+	return centered(
 		"Sign in · GitHuBot",
-		`<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px">
-			<div class="card center" style="width:420px;border-radius:16px;padding:48px 40px">
-				<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#ededed" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h9a4 4 0 0 1 0 8H9"/><path d="M11.5 11 9 13.5 11.5 16"/><rect x="2.5" y="16.5" width="19" height="5" rx="1.5"/></svg>
-				<div style="font-size:22px;font-weight:700;letter-spacing:-0.032em;margin-top:20px">Sign in to GitHuBot</div>
-				<div class="sec" style="font-size:13.5px;margin-top:8px;line-height:1.6">Delivery status for the servers you manage.</div>
-				<a class="discord" style="margin-top:30px" href="/dashboard/login">Continue with Discord</a>
-				<div class="dim" style="font-size:12.5px;margin-top:20px;line-height:1.65">Only servers where you have <span class="sec">Manage&nbsp;Server</span> are shown. The dashboard never posts on your behalf.</div>
-			</div>
-		</div>`,
+		`${ICON.mark(32)}<h1>Sign in to GitHuBot</h1><p>Manage the repositories your servers track, and see what was delivered.</p>
+		<a class="btn primary" href="/dashboard/login">Continue with Discord</a>
+		<p class="hint">Only servers where you have <b>Manage Server</b> are shown. GitHuBot asks Discord for your name and server list, nothing else.</p>`,
+	);
+}
+
+export function noServersPage(session: DashboardSession): string {
+	return centered(
+		"No servers · GitHuBot",
+		`${ICON.mark(32)}<h1>No servers to manage</h1><p>You are signed in as <b>${esc(session.username)}</b>, but you do not have <b>Manage Server</b> on any server GitHuBot is in.</p>
+		<form method="post" action="/dashboard/logout">${csrfField(session)}<button class="btn" type="submit">Sign out</button></form>`,
 	);
 }
 
 export function notConfiguredPage(missing: string[]): string {
-	return layout(
+	return centered(
 		"Dashboard is off · GitHuBot",
-		`<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px">
-			<div class="card center" style="width:460px;border-radius:16px;padding:48px 40px">
-				<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5h.01"/></svg>
-				<div style="font-size:22px;font-weight:700;letter-spacing:-0.032em;margin-top:20px">Dashboard is off</div>
-				<div class="sec" style="font-size:13.5px;margin-top:8px;line-height:1.6">The bot is running normally. This is optional and stays disabled until configured.</div>
-				<div class="pre" style="width:100%;margin-top:26px">${missing.map((key) => `${escapeHtml(key)}=…`).join("<br>")}</div>
-				<div class="dim" style="font-size:12.5px;margin-top:18px;line-height:1.65">Add <span class="mono sec">&lt;DASHBOARD_BASE_URL&gt;/dashboard/auth/callback</span> as a redirect URI, then restart.</div>
-			</div>
-		</div>`,
+		`<span class="warn">${svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5h.01"/>', 32)}</span><h1>Dashboard is off</h1><p>The bot is running normally. The dashboard is optional and stays disabled until it is configured.</p>
+		<pre>${missing.map((key) => `${esc(key)}=…`).join("\n")}</pre>
+		<p class="hint">Add <code>&lt;DASHBOARD_BASE_URL&gt;/dashboard/auth/callback</code> as a redirect URI in the Discord Developer Portal, then restart.</p>`,
 	);
 }
 
 export function errorPage(status: number, message: string): string {
-	return layout(
+	return centered(
 		`${status} · GitHuBot`,
-		`<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px">
-			<div class="card center" style="width:420px;border-radius:16px;padding:48px 40px">
-				<div class="mono dim" style="font-size:13px">${status}</div>
-				<div style="font-size:19px;font-weight:700;letter-spacing:-0.025em;margin-top:10px">${escapeHtml(message)}</div>
-				<a class="btn" style="margin-top:24px" href="/dashboard">Back to overview</a>
-			</div>
-		</div>`,
+		`<div class="mono faint">${status}</div><h1>${esc(message)}</h1><a class="btn" href="/dashboard">Back to the dashboard</a>`,
 	);
 }

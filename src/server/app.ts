@@ -16,7 +16,12 @@ import type { Logger } from "../config/logger.js";
 import { tryDecryptSecret } from "../crypto/secrets.js";
 import { type DashboardContext, registerDashboard } from "../dashboard/routes.js";
 import { notConfiguredPage } from "../dashboard/views.js";
-import type { RepoRepository, TrackedRepo } from "../db/types.js";
+import type {
+	DeliveryOutcome,
+	NewDeliveryLogEntry,
+	RepoRepository,
+	TrackedRepo,
+} from "../db/types.js";
 import { type DispatchContext, type DispatchOutcome, dispatchEvent } from "../delivery/dispatch.js";
 import { repositoryMismatch } from "../github/repository.js";
 import { verifyGitHubSignature } from "../github/verify.js";
@@ -318,13 +323,25 @@ async function handleWebhook(
 	// added to the wrong repository shows up before any event is missed.
 	await noteReportedRepository(ctx, tracked, request.body);
 
+	const log = (outcome: DeliveryOutcome, detail: string | null = null) =>
+		logDelivery(ctx, {
+			trackingId,
+			deliveryId,
+			event: logToken(eventName) ?? "unknown",
+			action: logToken((request.body as { action?: unknown } | null)?.action),
+			outcome,
+			detail,
+		});
+
 	if (eventName === "ping") {
 		ctx.logger.info({ trackingId }, "GitHub ping received");
+		await log("ping");
 		return reply.code(200).send({ ok: true, ping: true });
 	}
 
 	const eventType = githubEventToType(eventName);
 	if (!eventType) {
+		await log("unsupported");
 		return reply.code(200).send({ ok: true, ignored: true, reason: "unsupported_event" });
 	}
 
@@ -345,8 +362,20 @@ async function handleWebhook(
 		);
 	} catch (err) {
 		await releaseClaim(ctx, deliveryId);
+		await log("failed", "Internal error while preparing the message");
 		throw err;
 	}
+
+	await log(
+		outcome.status,
+		outcome.status === "failed"
+			? outcome.error
+			: outcome.status === "filtered"
+				? outcome.reason
+				: outcome.status === "bad_channel"
+					? `Channel ${outcome.channelId} is missing or not writable`
+					: null,
+	);
 
 	// Nothing reached Discord, so un-record the delivery: once the channel or
 	// permissions are fixed, GitHub's "Redeliver" must post it rather than be
@@ -406,6 +435,23 @@ async function noteReportedRepository(
 			{ err, trackingId: tracked.trackingId },
 			"Failed to record reported repository",
 		);
+	}
+}
+
+/**
+ * Event and action names come from the request, so only a plain identifier is
+ * stored — the log holds what kind of delivery it was, never payload contents.
+ */
+function logToken(value: unknown): string | null {
+	return typeof value === "string" && /^[a-z0-9_]{1,64}$/i.test(value) ? value : null;
+}
+
+/** Best effort: the log is for the dashboard and must never fail a delivery. */
+async function logDelivery(ctx: ServerContext, entry: NewDeliveryLogEntry): Promise<void> {
+	try {
+		await ctx.repository?.recordDeliveryLog(entry);
+	} catch (err) {
+		ctx.logger.error({ err, deliveryId: entry.deliveryId }, "Failed to write the delivery log");
 	}
 }
 

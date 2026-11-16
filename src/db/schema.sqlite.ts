@@ -84,6 +84,27 @@ export const deliveries = sqliteTable(
 	],
 );
 
+/** One row per processed delivery: what it was and what became of it. No payload data. */
+export const deliveryLog = sqliteTable(
+	"delivery_log",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		trackingId: text("tracking_id").notNull(),
+		deliveryId: text("delivery_id").notNull(),
+		event: text("event").notNull(),
+		action: text("action"),
+		outcome: text("outcome").notNull(),
+		detail: text("detail"),
+		createdAt: integer("created_at", { mode: "timestamp_ms" })
+			.notNull()
+			.$defaultFn(() => new Date()),
+	},
+	(table) => [
+		index("delivery_log_tracking_idx").on(table.trackingId, table.id),
+		index("delivery_log_created_at_idx").on(table.createdAt),
+	],
+);
+
 export type TrackedRepoRow = typeof trackedRepos.$inferSelect;
 export type NewTrackedRepo = typeof trackedRepos.$inferInsert;
 export type GuildRow = typeof guilds.$inferSelect;

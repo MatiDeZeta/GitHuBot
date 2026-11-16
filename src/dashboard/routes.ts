@@ -1,12 +1,39 @@
 import type { Client } from "discord.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { RenderOptions } from "../bot/render/render.js";
 import { sampleTemplate } from "../bot/render/samples.js";
+import { isDisplayMode } from "../bot/render/template.js";
+import { isThemeId } from "../bot/render/theme.js";
 import type { DashboardEnv } from "../config/env.js";
+import {
+	DEFAULT_ENABLED_EVENTS,
+	EVENT_CATEGORIES,
+	EVENT_TYPES,
+	type EventType,
+	eventTypeSchema,
+	repoSlugSchema,
+} from "../config/events.js";
 import type { Logger } from "../config/logger.js";
-import type { RepoRepository, TrackedRepo } from "../db/types.js";
+import {
+	encryptSecret,
+	generateTrackingId,
+	generateWebhookSecret,
+	tryDecryptSecret,
+} from "../crypto/secrets.js";
+import {
+	type DeliveryOutcome,
+	isDeliveryOutcome,
+	type RepoRepository,
+	type TrackedRepo,
+} from "../db/types.js";
 import { type DispatchContext, deliverTemplate, renderOptionsFor } from "../delivery/dispatch.js";
+import { parseFilterList } from "../delivery/filters.js";
+import { isAppLocale } from "../i18n/index.js";
 import { metrics } from "../metrics.js";
+import { ASSETS } from "./assets.js";
+import { channelInGuild, guildDirectory, roleInGuild, stillManages } from "./directory.js";
 import { authorizeUrl, completeSignIn, createOAuthState } from "./oauth.js";
+import { previewMessages } from "./preview.js";
 import {
 	clearCookie,
 	cookieName,
@@ -23,10 +50,25 @@ import {
 } from "./session.js";
 import {
 	ACTIVITY_DAYS,
+	activityPage,
 	errorPage,
+	guildPath,
+	healthOf,
+	isRepoTab,
+	LOG_PAGE_SIZE,
+	type NavId,
+	type Notice,
+	newRepoPage,
+	noServersPage,
 	overviewPage,
+	type RepoTab,
 	type RepoView,
-	repoDetailPage,
+	repoPage,
+	repoPath,
+	reposPage,
+	type Shell,
+	SUMMARY_DAYS,
+	settingsPage,
 	signInPage,
 } from "./views.js";
 
@@ -40,22 +82,60 @@ export interface DashboardContext {
 }
 
 const HTML = "text/html; charset=utf-8";
+const DAY_MS = 86_400_000;
 
 /**
- * The page ships zero JavaScript, so `script-src 'none'` is achievable — an HTML
- * escaping mistake still could not execute anything. `style-src 'unsafe-inline'`
- * is required because the markup styles elements inline.
+ * Nothing inline is allowed at all: the stylesheet and the one script come from
+ * this origin, and the markup carries neither `style` attributes nor handlers. An
+ * HTML-escaping mistake therefore still cannot run a script or restyle the page.
+ * Avatars are the only cross-origin load, and only from Discord's CDN.
  */
 const CSP = [
 	"default-src 'none'",
-	"script-src 'none'",
-	"style-src 'unsafe-inline'",
-	"img-src 'self' data:",
+	"script-src 'self'",
+	"style-src 'self'",
+	"img-src 'self' https://cdn.discordapp.com",
+	"connect-src 'self'",
 	"form-action 'self'",
 	"frame-ancestors 'none'",
 	"base-uri 'none'",
-	"connect-src 'none'",
 ].join("; ");
+
+/** Why a page is being shown after a redirect. Keys only ever come from this table. */
+const NOTICES: Record<string, Notice> = {
+	paused: { kind: "ok", text: "Deliveries paused. GitHub keeps sending; nothing is posted." },
+	resumed: { kind: "ok", text: "Deliveries resumed." },
+	test_ok: { kind: "ok", text: "Test message posted." },
+	test_failed: {
+		kind: "bad",
+		text: "The test message could not be posted. The reason is under Deliveries are failing.",
+	},
+	events_saved: { kind: "ok", text: "Events saved." },
+	filters_saved: { kind: "ok", text: "Filters saved." },
+	channel_saved: { kind: "ok", text: "Default channel saved." },
+	routing_saved: { kind: "ok", text: "Channels and mentions saved." },
+	style_saved: { kind: "ok", text: "Appearance saved." },
+	settings_saved: { kind: "ok", text: "Server defaults saved." },
+	alerts_saved: { kind: "ok", text: "Failure alerts saved." },
+	removed: { kind: "ok", text: "Repository removed. Delete its webhook on GitHub too." },
+	bad_channel: {
+		kind: "bad",
+		text: "That channel is not a text, announcement, forum or thread channel in this server.",
+	},
+	bad_role: { kind: "bad", text: "That role does not belong to this server." },
+	bad_event: { kind: "bad", text: "That is not an event GitHuBot knows." },
+	confirm: { kind: "warn", text: "Tick the confirmation box to remove the repository." },
+	undecryptable: {
+		kind: "bad",
+		text: "This secret was stored under a different MASTER_KEY and cannot be read. Rotate it to get a new one.",
+	},
+};
+
+const PRESETS: Record<string, readonly EventType[]> = {
+	minimal: ["push", "release"],
+	standard: DEFAULT_ENABLED_EVENTS,
+	everything: EVENT_TYPES,
+};
 
 export async function registerDashboard(
 	app: FastifyInstance,
@@ -77,7 +157,9 @@ export async function registerDashboard(
 			"application/x-www-form-urlencoded",
 			{ parseAs: "string" },
 			(_req, body, done) => {
-				done(null, Object.fromEntries(new URLSearchParams(String(body))));
+				// Kept as URLSearchParams: checkbox groups repeat a name, which a plain
+				// object would collapse to its last value.
+				done(null, new URLSearchParams(String(body)));
 			},
 		);
 
@@ -103,9 +185,11 @@ export async function registerDashboard(
 			);
 			reply.header("cross-origin-opener-policy", "same-origin");
 			reply.header("cross-origin-resource-policy", "same-origin");
-			// Every dashboard page is per-user data behind a cookie; never let a proxy
-			// or the back button hand it to someone else.
-			reply.header("cache-control", "no-store, max-age=0");
+			// Every page is per-user data behind a cookie; never let a proxy or the back
+			// button hand it to someone else. The two static assets opt out below.
+			if (!reply.hasHeader("cache-control")) {
+				reply.header("cache-control", "no-store, max-age=0");
+			}
 			if (secure) {
 				reply.header("strict-transport-security", "max-age=31536000; includeSubDomains");
 			}
@@ -123,29 +207,227 @@ interface RouteOptions {
 	stateCookie: string;
 }
 
+interface GuildParams {
+	guildId: string;
+}
+
+interface RepoParams extends GuildParams {
+	owner: string;
+	repo: string;
+}
+
+type Query = Record<string, string | string[] | undefined>;
+
+function one(value: unknown): string {
+	return typeof value === "string" ? value : "";
+}
+
+/** The parsed form, or an empty one for a POST that was not a form at all. */
+function formOf(request: FastifyRequest): URLSearchParams {
+	return request.body instanceof URLSearchParams ? request.body : new URLSearchParams();
+}
+
+function noticeFrom(query: Query): Notice | null {
+	return NOTICES[one(query.notice)] ?? null;
+}
+
 function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: RouteOptions): void {
 	const { secure, sessionSeconds, sessionCookie, stateCookie } = opts;
 
 	function sessionOf(request: FastifyRequest): DashboardSession | null {
-		return decodeSession(readCookie(request.headers.cookie, sessionCookie), ctx.masterKey);
+		const session = decodeSession(readCookie(request.headers.cookie, sessionCookie), ctx.masterKey);
+		// Re-checked on every request, so tightening DISCORD_ALLOWED_USER_ID and
+		// restarting shuts out sessions issued before the change.
+		if (
+			session &&
+			ctx.env.DISCORD_ALLOWED_USER_ID &&
+			ctx.env.DISCORD_ALLOWED_USER_ID !== session.userId
+		) {
+			return null;
+		}
+		return session;
 	}
 
 	function html(reply: FastifyReply, status: number, body: string): FastifyReply {
 		return reply.code(status).header("content-type", HTML).send(body);
 	}
 
+	const dispatchContext = (): DispatchContext => ({
+		client: ctx.discord,
+		repository: ctx.repository,
+		logger: ctx.logger,
+		defaults: ctx.renderDefaults,
+	});
+
+	// ------------------------------------------------------------- guards --
+
+	/** Signed in, and the server in the URL is one this person managed at sign-in. */
+	async function guildAccess(
+		request: FastifyRequest<{ Params: GuildParams }>,
+		reply: FastifyReply,
+	): Promise<{ session: DashboardSession; guildId: string } | null> {
+		const session = sessionOf(request);
+		if (!session) {
+			await reply.redirect("/dashboard");
+			return null;
+		}
+		const { guildId } = request.params;
+		if (!session.guildIds.includes(guildId)) {
+			await html(reply, 403, errorPage(403, "You do not manage that server."));
+			return null;
+		}
+		return { session, guildId };
+	}
+
+	/**
+	 * Everything that changes state passes through here: the form token must match,
+	 * and Discord must still say this person has Manage Server — the session only
+	 * remembers that it was true when they signed in.
+	 */
+	async function writeAccess(
+		request: FastifyRequest<{ Params: GuildParams }>,
+		reply: FastifyReply,
+	): Promise<{ session: DashboardSession; guildId: string; form: URLSearchParams } | null> {
+		const access = await guildAccess(request, reply);
+		if (!access) return null;
+		const form = formOf(request);
+		if (!csrfMatches(access.session.csrfToken, form.get("csrf") ?? undefined)) {
+			await html(reply, 403, errorPage(403, "Invalid form token. Go back, reload and try again."));
+			return null;
+		}
+		if (!(await stillManages(ctx.discord, access.guildId, access.session.userId))) {
+			ctx.logger.warn(
+				{ userId: access.session.userId, guildId: access.guildId },
+				"Dashboard write refused: Manage Server no longer held",
+			);
+			await html(
+				reply,
+				403,
+				errorPage(403, "You no longer have Manage Server on that server. Sign in again."),
+			);
+			return null;
+		}
+		return { ...access, form };
+	}
+
+	async function repoOr404(
+		guildId: string,
+		params: RepoParams,
+		reply: FastifyReply,
+	): Promise<TrackedRepo | null> {
+		const tracked = await ctx.repository.getRepo(guildId, params.owner, params.repo);
+		if (!tracked) {
+			await html(reply, 404, errorPage(404, "That repository is not tracked here."));
+		}
+		return tracked;
+	}
+
+	async function repoWrite(
+		request: FastifyRequest<{ Params: RepoParams }>,
+		reply: FastifyReply,
+	): Promise<{ session: DashboardSession; repo: TrackedRepo; form: URLSearchParams } | null> {
+		const access = await writeAccess(request, reply);
+		if (!access) return null;
+		const repo = await repoOr404(access.guildId, request.params, reply);
+		return repo ? { session: access.session, repo, form: access.form } : null;
+	}
+
+	function audit(session: DashboardSession, repo: TrackedRepo | string, action: string): void {
+		ctx.logger.info(
+			{
+				userId: session.userId,
+				target: typeof repo === "string" ? repo : `${repo.owner}/${repo.repo}`,
+				action,
+			},
+			"Dashboard change",
+		);
+	}
+
+	// -------------------------------------------------------------- loaders --
+
+	async function channelName(channelId: string): Promise<string> {
+		const cached = ctx.discord.channels.cache?.get(channelId);
+		const channel = cached ?? (await ctx.discord.channels.fetch(channelId).catch(() => null));
+		if (channel && "name" in channel && typeof channel.name === "string") return channel.name;
+		return channelId;
+	}
+
+	async function loadViews(guildId: string): Promise<RepoView[]> {
+		const repos = await ctx.repository.listRepos(guildId);
+		const activity = await ctx.repository.activityByDay(
+			repos.map((repo) => repo.trackingId),
+			ACTIVITY_DAYS,
+		);
+		return Promise.all(
+			repos.map(async (repo) => ({
+				repo,
+				channelName: await channelName(repo.channelId),
+				activity: activity.get(repo.trackingId) ?? new Array<number>(ACTIVITY_DAYS).fill(0),
+			})),
+		);
+	}
+
+	function shellFor(
+		session: DashboardSession,
+		guildId: string,
+		active: NavId,
+		repos: TrackedRepo[],
+	): Shell {
+		return {
+			session,
+			guildId,
+			active,
+			repoCount: repos.length,
+			failingCount: repos.filter((repo) => healthOf(repo) === "failing").length,
+		};
+	}
+
+	function logQuery(query: Query): { outcome: DeliveryOutcome | undefined; before?: number } {
+		const outcome = isDeliveryOutcome(query.outcome) ? query.outcome : undefined;
+		const before = Number.parseInt(one(query.before), 10);
+		return Number.isSafeInteger(before) && before > 0 ? { outcome, before } : { outcome };
+	}
+
+	/** One extra row is fetched to learn whether an older page exists. */
+	async function loadLog(trackingIds: string[], query: Query) {
+		const { outcome, before } = logQuery(query);
+		const rows = await ctx.repository.listDeliveryLog(trackingIds, {
+			limit: LOG_PAGE_SIZE + 1,
+			outcome,
+			before,
+		});
+		const page = rows.slice(0, LOG_PAGE_SIZE);
+		return {
+			rows: page,
+			outcome: outcome ?? "",
+			nextBefore: rows.length > LOG_PAGE_SIZE ? (page.at(-1)?.id ?? null) : null,
+		};
+	}
+
+	// --------------------------------------------------------------- assets --
+
+	// Public and identical for everyone, with the content hash in the name, so they
+	// can be cached for good. Unknown names fall through to a 404.
+	for (const [asset, type] of [
+		[ASSETS.css, "text/css; charset=utf-8"],
+		[ASSETS.js, "text/javascript; charset=utf-8"],
+	] as const) {
+		app.get(asset.path, async (_request, reply) =>
+			reply
+				.header("content-type", type)
+				.header("cache-control", "public, max-age=31536000, immutable")
+				.send(asset.body),
+		);
+	}
+
+	// ------------------------------------------------------------- sign-in --
+
 	app.get("/dashboard", async (request, reply) => {
 		const session = sessionOf(request);
 		if (!session) return html(reply, 200, signInPage());
 		const first = session.guilds[0];
-		if (!first) {
-			return html(
-				reply,
-				200,
-				errorPage(200, "You do not have Manage Server on any server GitHuBot is in."),
-			);
-		}
-		return reply.redirect(`/dashboard/g/${encodeURIComponent(first.id)}`);
+		if (!first) return html(reply, 200, noServersPage(session));
+		return reply.redirect(guildPath(first.id));
 	});
 
 	// Unauthenticated and each one costs a Discord round-trip, so limit them well
@@ -159,7 +441,13 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			.redirect(authorizeUrl(ctx.env, state));
 	});
 
-	app.get("/dashboard/logout", async (_request, reply) => {
+	// A POST with the form token: a GET could be triggered by any page embedding
+	// the URL as an image, signing people out at will.
+	app.post("/dashboard/logout", async (request, reply) => {
+		const session = sessionOf(request);
+		if (session && !csrfMatches(session.csrfToken, formOf(request).get("csrf") ?? undefined)) {
+			return html(reply, 403, errorPage(403, "Invalid form token."));
+		}
 		return reply.header("set-cookie", clearCookie(sessionCookie, secure)).redirect("/dashboard");
 	});
 
@@ -232,221 +520,534 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 		},
 	);
 
-	app.get<{ Params: { guildId: string } }>("/dashboard/g/:guildId", async (request, reply) => {
-		const session = sessionOf(request);
-		if (!session) return reply.redirect("/dashboard");
+	// ------------------------------------------------------- server pages --
 
-		const { guildId } = request.params;
-		if (!session.guildIds.includes(guildId)) {
-			return html(reply, 403, errorPage(403, "You do not manage that server."));
-		}
+	app.get<{ Params: GuildParams; Querystring: Query }>(
+		"/dashboard/g/:guildId",
+		async (request, reply) => {
+			const access = await guildAccess(request, reply);
+			if (!access) return reply;
+			const views = await loadViews(access.guildId);
+			const trackingIds = views.map((view) => view.repo.trackingId);
+			const [counts, recent] = await Promise.all([
+				ctx.repository.deliveryOutcomeCounts(
+					trackingIds,
+					new Date(Date.now() - SUMMARY_DAYS * DAY_MS),
+				),
+				ctx.repository.listDeliveryLog(trackingIds, { limit: 8 }),
+			]);
+			const repos = views.map((view) => view.repo);
+			return html(
+				reply,
+				200,
+				overviewPage(shellFor(access.session, access.guildId, "overview", repos), {
+					repos: views,
+					counts,
+					recent,
+					uptimeMs: metrics.snapshot().uptimeMs,
+					notice: noticeFrom(request.query),
+				}),
+			);
+		},
+	);
 
-		const repos = await ctx.repository.listRepos(guildId);
-		const activity = await ctx.repository.activityByDay(
-			repos.map((repo) => repo.trackingId),
-			ACTIVITY_DAYS,
+	app.get<{ Params: GuildParams; Querystring: Query }>(
+		"/dashboard/g/:guildId/repos",
+		async (request, reply) => {
+			const access = await guildAccess(request, reply);
+			if (!access) return reply;
+			const views = await loadViews(access.guildId);
+			return html(
+				reply,
+				200,
+				reposPage(
+					shellFor(
+						access.session,
+						access.guildId,
+						"repos",
+						views.map((view) => view.repo),
+					),
+					views,
+					{ q: one(request.query.q).slice(0, 100), status: one(request.query.status) },
+					noticeFrom(request.query),
+				),
+			);
+		},
+	);
+
+	app.get<{ Params: GuildParams; Querystring: Query }>(
+		"/dashboard/g/:guildId/activity",
+		async (request, reply) => {
+			const access = await guildAccess(request, reply);
+			if (!access) return reply;
+			const repos = await ctx.repository.listRepos(access.guildId);
+			const log = await loadLog(
+				repos.map((repo) => repo.trackingId),
+				request.query,
+			);
+			return html(
+				reply,
+				200,
+				activityPage(shellFor(access.session, access.guildId, "activity", repos), {
+					rows: log.rows,
+					repos,
+					outcome: log.outcome,
+					nextBefore: log.nextBefore,
+				}),
+			);
+		},
+	);
+
+	app.get<{ Params: GuildParams; Querystring: Query }>(
+		"/dashboard/g/:guildId/settings",
+		async (request, reply) => {
+			const access = await guildAccess(request, reply);
+			if (!access) return reply;
+			const [repos, settings] = await Promise.all([
+				ctx.repository.listRepos(access.guildId),
+				ctx.repository.getGuildSettings(access.guildId),
+			]);
+			return html(
+				reply,
+				200,
+				settingsPage(shellFor(access.session, access.guildId, "settings", repos), {
+					settings,
+					directory: guildDirectory(ctx.discord, access.guildId),
+					previewHtml: previewMessages(
+						renderOptionsFor(null, settings, ctx.renderDefaults),
+						"your-org/your-repo",
+						access.session.username,
+					),
+					notice: noticeFrom(request.query),
+				}),
+			);
+		},
+	);
+
+	/**
+	 * The fragment the appearance forms swap in as their selects change. An empty
+	 * choice means "inherit", resolved the same way a real delivery resolves it.
+	 */
+	app.get<{ Params: GuildParams; Querystring: Query }>(
+		"/dashboard/g/:guildId/preview",
+		async (request, reply) => {
+			const access = await guildAccess(request, reply);
+			if (!access) return reply;
+			const { theme, mode, locale } = request.query;
+			const settings = await ctx.repository.getGuildSettings(access.guildId);
+			const slug = repoSlugSchema.safeParse(one(request.query.repo));
+			// With a repository named, an empty choice falls back to the server's
+			// defaults; without one, this is the server form and falls back to the bot's.
+			const inherited = renderOptionsFor(null, slug.success ? settings : null, ctx.renderDefaults);
+			const options: RenderOptions = {
+				theme: isThemeId(theme) ? theme : inherited.theme,
+				mode: isDisplayMode(mode) ? mode : inherited.mode,
+				locale: isAppLocale(locale) ? locale : inherited.locale,
+			};
+			return html(
+				reply,
+				200,
+				previewMessages(
+					options,
+					slug.success ? slug.data.slug : "your-org/your-repo",
+					access.session.username,
+				),
+			);
+		},
+	);
+
+	app.post<{ Params: GuildParams }>(
+		"/dashboard/g/:guildId/settings/style",
+		async (request, reply) => {
+			const access = await writeAccess(request, reply);
+			if (!access) return reply;
+			const theme = access.form.get("theme");
+			const mode = access.form.get("mode");
+			const locale = access.form.get("locale");
+			await ctx.repository.updateGuildSettings(access.guildId, {
+				defaultTheme: isThemeId(theme) ? theme : null,
+				defaultDisplayMode: isDisplayMode(mode) ? mode : null,
+				locale: isAppLocale(locale) ? locale : null,
+			});
+			audit(access.session, access.guildId, "server defaults");
+			return reply.redirect(guildPath(access.guildId, "/settings?notice=settings_saved"));
+		},
+	);
+
+	app.post<{ Params: GuildParams }>(
+		"/dashboard/g/:guildId/settings/alerts",
+		async (request, reply) => {
+			const access = await writeAccess(request, reply);
+			if (!access) return reply;
+			const channel = (access.form.get("channel") ?? "").trim();
+			if (channel && !(await channelInGuild(ctx.discord, access.guildId, channel))) {
+				return reply.redirect(guildPath(access.guildId, "/settings?notice=bad_channel"));
+			}
+			await ctx.repository.updateGuildSettings(access.guildId, {
+				alertChannelId: channel || null,
+			});
+			audit(access.session, access.guildId, "alert channel");
+			return reply.redirect(guildPath(access.guildId, "/settings?notice=alerts_saved"));
+		},
+	);
+
+	// ------------------------------------------------------ add repository --
+
+	app.get<{ Params: GuildParams }>("/dashboard/g/:guildId/repos/new", async (request, reply) => {
+		const access = await guildAccess(request, reply);
+		if (!access) return reply;
+		const repos = await ctx.repository.listRepos(access.guildId);
+		return html(
+			reply,
+			200,
+			newRepoPage(
+				shellFor(access.session, access.guildId, "repos", repos),
+				guildDirectory(ctx.discord, access.guildId),
+				{ repository: "", channel: "" },
+				null,
+			),
 		);
-		const views = await Promise.all(
-			repos.map((repo) => toView(ctx, repo, activity.get(repo.trackingId))),
-		);
-		return html(reply, 200, overviewPage(session, guildId, views, metrics.snapshot()));
 	});
 
-	app.get<{ Params: RepoParams }>(
+	app.post<{ Params: GuildParams }>("/dashboard/g/:guildId/repos/new", async (request, reply) => {
+		const access = await writeAccess(request, reply);
+		if (!access) return reply;
+		const { session, guildId, form } = access;
+		const values = {
+			repository: (form.get("repository") ?? "").trim().slice(0, 200),
+			channel: (form.get("channel") ?? "").trim(),
+		};
+		const again = async (status: number, error: string) =>
+			html(
+				reply,
+				status,
+				newRepoPage(
+					shellFor(session, guildId, "repos", await ctx.repository.listRepos(guildId)),
+					guildDirectory(ctx.discord, guildId),
+					values,
+					error,
+				),
+			);
+
+		const slug = repoSlugSchema.safeParse(values.repository);
+		if (!slug.success) return again(400, "Enter the repository as owner/repo.");
+		if (!(await channelInGuild(ctx.discord, guildId, values.channel))) {
+			return again(400, "Pick a text, announcement, forum or thread channel in this server.");
+		}
+		const { owner, repo } = slug.data;
+		if (await ctx.repository.getRepo(guildId, owner, repo)) {
+			return again(409, `${slug.data.slug} is already tracked in this server.`);
+		}
+
+		const secret = generateWebhookSecret();
+		const tracked = await ctx.repository.addRepo({
+			guildId,
+			owner,
+			repo,
+			channelId: values.channel,
+			trackingId: generateTrackingId(),
+			encryptedSecret: encryptSecret(secret, ctx.masterKey),
+			enabledEvents: [...DEFAULT_ENABLED_EVENTS],
+		});
+		audit(session, tracked, "added");
+		// Rendered straight from the POST rather than after a redirect: the secret is
+		// shown once and must never travel in a URL.
+		return renderRepo(reply, session, tracked, "webhook", {}, secret, {
+			kind: "ok",
+			text: "Repository added. Finish by creating the webhook on GitHub with the URL and secret below.",
+		});
+	});
+
+	// --------------------------------------------------------- repository --
+
+	async function renderRepo(
+		reply: FastifyReply,
+		session: DashboardSession,
+		repo: TrackedRepo,
+		tab: RepoTab,
+		query: Query,
+		secret: string | null,
+		notice: Notice | null,
+	): Promise<FastifyReply> {
+		const [repos, settings, activity, log] = await Promise.all([
+			ctx.repository.listRepos(repo.guildId),
+			ctx.repository.getGuildSettings(repo.guildId),
+			ctx.repository.activityByDay([repo.trackingId], ACTIVITY_DAYS),
+			tab === "deliveries"
+				? loadLog([repo.trackingId], query)
+				: tab === "overview"
+					? ctx.repository
+							.listDeliveryLog([repo.trackingId], { limit: 8 })
+							.then((rows) => ({ rows, outcome: "", nextBefore: null }))
+					: { rows: [], outcome: "", nextBefore: null },
+		]);
+		const effective = renderOptionsFor(repo, settings, ctx.renderDefaults);
+		return html(
+			reply,
+			200,
+			repoPage(shellFor(session, repo.guildId, "repos", repos), {
+				view: {
+					repo,
+					channelName: await channelName(repo.channelId),
+					activity: activity.get(repo.trackingId) ?? new Array<number>(ACTIVITY_DAYS).fill(0),
+				},
+				tab,
+				directory: guildDirectory(ctx.discord, repo.guildId),
+				settings,
+				effective,
+				log: log.rows,
+				logFilter: { outcome: log.outcome, nextBefore: log.nextBefore },
+				webhookUrl: `${ctx.env.PUBLIC_WEBHOOK_URL ?? ctx.env.DASHBOARD_BASE_URL}/webhooks/github/${repo.trackingId}`,
+				secret,
+				previewHtml:
+					tab === "appearance"
+						? previewMessages(effective, `${repo.owner}/${repo.repo}`, session.username)
+						: "",
+				notice,
+			}),
+		);
+	}
+
+	app.get<{ Params: RepoParams; Querystring: Query }>(
 		"/dashboard/g/:guildId/r/:owner/:repo",
 		async (request, reply) => {
-			const found = await requireRepo(ctx, request, reply, sessionOf(request));
-			if (!found) return reply;
-			const { session, repo } = found;
-
-			const view = await toView(ctx, repo);
-			const channelNames = await resolveRouteNames(ctx, repo);
-			const roleNames = await resolveRoleNames(ctx, repo);
-			const notice = noticeFrom(request.query as Record<string, unknown>);
-			return html(reply, 200, repoDetailPage(session, view, channelNames, roleNames, notice));
+			const access = await guildAccess(request, reply);
+			if (!access) return reply;
+			const repo = await repoOr404(access.guildId, request.params, reply);
+			if (!repo) return reply;
+			const tab = isRepoTab(request.query.tab) ? request.query.tab : "overview";
+			return renderRepo(
+				reply,
+				access.session,
+				repo,
+				tab,
+				request.query,
+				null,
+				noticeFrom(request.query),
+			);
 		},
 	);
 
-	app.post<{ Params: RepoParams; Body: Record<string, string> }>(
-		"/dashboard/g/:guildId/r/:owner/:repo/pause",
-		async (request, reply) => setPaused(ctx, request, reply, sessionOf(request), true),
-	);
+	const back = (repo: TrackedRepo, tab: RepoTab, notice: string) =>
+		repoPath(repo, `?${tab === "overview" ? "" : `tab=${tab}&`}notice=${notice}`);
 
-	app.post<{ Params: RepoParams; Body: Record<string, string> }>(
-		"/dashboard/g/:guildId/r/:owner/:repo/resume",
-		async (request, reply) => setPaused(ctx, request, reply, sessionOf(request), false),
-	);
+	for (const [action, paused] of [
+		["pause", true],
+		["resume", false],
+	] as const) {
+		app.post<{ Params: RepoParams }>(
+			`/dashboard/g/:guildId/r/:owner/:repo/${action}`,
+			async (request, reply) => {
+				const found = await repoWrite(request, reply);
+				if (!found) return reply;
+				await ctx.repository.setPaused(
+					found.repo.guildId,
+					found.repo.owner,
+					found.repo.repo,
+					paused,
+				);
+				audit(found.session, found.repo, paused ? "paused" : "resumed");
+				return reply.redirect(back(found.repo, "overview", paused ? "paused" : "resumed"));
+			},
+		);
+	}
 
-	app.post<{ Params: RepoParams; Body: Record<string, string> }>(
+	app.post<{ Params: RepoParams }>(
 		"/dashboard/g/:guildId/r/:owner/:repo/test",
 		async (request, reply) => {
-			const found = await requireRepo(ctx, request, reply, sessionOf(request));
+			const found = await repoWrite(request, reply);
 			if (!found) return reply;
-			const { session, repo } = found;
-			if (!csrfMatches(session.csrfToken, request.body?.csrf)) {
-				return reply
-					.code(403)
-					.header("content-type", HTML)
-					.send(errorPage(403, "Invalid form token."));
-			}
+			const { session, repo, form } = found;
+			const event = eventTypeSchema.safeParse(form.get("event") ?? repo.enabledEvents[0] ?? "push");
+			if (!event.success) return reply.redirect(back(repo, "overview", "bad_event"));
 
+			const slug = `${repo.owner}/${repo.repo}`;
 			const guild = await ctx.repository.getGuildSettings(repo.guildId);
-			const options = renderOptionsFor(repo, guild, ctx.renderDefaults);
-			const template = sampleTemplate(
-				repo.enabledEvents[0] ?? "push",
-				`${repo.owner}/${repo.repo}`,
-				`https://github.com/${repo.owner}/${repo.repo}`,
-				{ login: session.username },
-			);
-
 			const outcome = await deliverTemplate(
-				{
-					client: ctx.discord,
-					repository: ctx.repository,
-					logger: ctx.logger,
-					defaults: ctx.renderDefaults,
-				},
+				dispatchContext(),
 				repo,
-				repo.enabledEvents[0] ?? "push",
-				template,
-				options,
+				event.data,
+				sampleTemplate(event.data, slug, `https://github.com/${slug}`, {
+					login: session.username,
+					...(session.avatarUrl ? { avatarUrl: session.avatarUrl } : {}),
+				}),
+				renderOptionsFor(repo, guild, ctx.renderDefaults),
 			);
-
-			ctx.logger.info(
-				{ userId: session.userId, repo: `${repo.owner}/${repo.repo}`, outcome: outcome.status },
-				"Dashboard test message",
-			);
+			audit(session, repo, `test ${event.data}: ${outcome.status}`);
 			return reply.redirect(
-				`${repoPath(repo)}?notice=${outcome.status === "delivered" ? "test_ok" : "test_failed"}`,
+				back(repo, "overview", outcome.status === "delivered" ? "test_ok" : "test_failed"),
 			);
 		},
 	);
-}
 
-interface RepoParams {
-	guildId: string;
-	owner: string;
-	repo: string;
-}
-
-function repoPath(repo: TrackedRepo): string {
-	return `/dashboard/g/${encodeURIComponent(repo.guildId)}/r/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
-}
-
-/**
- * Every repo-scoped route funnels through here: it re-checks that the signed-in
- * user manages the guild in the URL, so a valid session for one server can never
- * read or act on another.
- */
-async function requireRepo(
-	ctx: DashboardContext,
-	request: FastifyRequest<{ Params: RepoParams }>,
-	reply: FastifyReply,
-	session: DashboardSession | null,
-): Promise<{ session: DashboardSession; repo: TrackedRepo } | null> {
-	if (!session) {
-		await reply.redirect("/dashboard");
-		return null;
-	}
-	const { guildId, owner, repo } = request.params;
-	if (!session.guildIds.includes(guildId)) {
-		await reply
-			.code(403)
-			.header("content-type", HTML)
-			.send(errorPage(403, "You do not manage that server."));
-		return null;
-	}
-	const tracked = await ctx.repository.getRepo(guildId, owner, repo);
-	if (!tracked) {
-		await reply
-			.code(404)
-			.header("content-type", HTML)
-			.send(errorPage(404, "That repository is not tracked here."));
-		return null;
-	}
-	return { session, repo: tracked };
-}
-
-async function setPaused(
-	ctx: DashboardContext,
-	request: FastifyRequest<{ Params: RepoParams; Body: Record<string, string> }>,
-	reply: FastifyReply,
-	session: DashboardSession | null,
-	paused: boolean,
-): Promise<FastifyReply> {
-	const found = await requireRepo(ctx, request, reply, session);
-	if (!found) return reply;
-	if (!csrfMatches(found.session.csrfToken, request.body?.csrf)) {
-		return reply.code(403).header("content-type", HTML).send(errorPage(403, "Invalid form token."));
-	}
-
-	await ctx.repository.setPaused(found.repo.guildId, found.repo.owner, found.repo.repo, paused);
-	ctx.logger.info(
-		{ userId: found.session.userId, repo: `${found.repo.owner}/${found.repo.repo}`, paused },
-		"Dashboard pause toggled",
+	app.post<{ Params: RepoParams }>(
+		"/dashboard/g/:guildId/r/:owner/:repo/events",
+		async (request, reply) => {
+			const found = await repoWrite(request, reply);
+			if (!found) return reply;
+			const { repo, form } = found;
+			const preset = PRESETS[form.get("preset") ?? ""];
+			const chosen = new Set(form.getAll("events"));
+			// Filtered against the known list, in its order: a posted name that is not
+			// an event is dropped rather than stored.
+			const events = preset ? [...preset] : EVENT_TYPES.filter((event) => chosen.has(event));
+			await ctx.repository.updateEvents(repo.guildId, repo.owner, repo.repo, events);
+			audit(found.session, repo, `events: ${events.length}`);
+			return reply.redirect(back(repo, "events", "events_saved"));
+		},
 	);
-	return reply.redirect(`${repoPath(found.repo)}?notice=${paused ? "paused" : "resumed"}`);
-}
 
-async function channelName(ctx: DashboardContext, channelId: string): Promise<string> {
-	const channel = await ctx.discord.channels.fetch(channelId).catch(() => null);
-	if (channel && "name" in channel && typeof channel.name === "string") return channel.name;
-	return channelId;
-}
+	app.post<{ Params: RepoParams }>(
+		"/dashboard/g/:guildId/r/:owner/:repo/filters",
+		async (request, reply) => {
+			const found = await repoWrite(request, reply);
+			if (!found) return reply;
+			const { repo, form } = found;
+			const list = (name: string) =>
+				parseFilterList(form.get(name)).map((entry) => entry.slice(0, 100));
+			await ctx.repository.updateFilters(repo.guildId, repo.owner, repo.repo, {
+				branchInclude: list("branchInclude"),
+				branchExclude: list("branchExclude"),
+				labels: list("labels"),
+				ignoredActors: list("ignoredActors"),
+			});
+			audit(found.session, repo, "filters");
+			return reply.redirect(back(repo, "filters", "filters_saved"));
+		},
+	);
 
-async function toView(
-	ctx: DashboardContext,
-	repo: TrackedRepo,
-	activity?: number[],
-): Promise<RepoView> {
-	return {
-		repo,
-		channelName: await channelName(ctx, repo.channelId),
-		activity: activity ?? new Array<number>(ACTIVITY_DAYS).fill(0),
-	};
-}
+	app.post<{ Params: RepoParams }>(
+		"/dashboard/g/:guildId/r/:owner/:repo/channel",
+		async (request, reply) => {
+			const found = await repoWrite(request, reply);
+			if (!found) return reply;
+			const { repo, form } = found;
+			const channel = (form.get("channel") ?? "").trim();
+			if (!(await channelInGuild(ctx.discord, repo.guildId, channel))) {
+				return reply.redirect(back(repo, "routing", "bad_channel"));
+			}
+			await ctx.repository.updateChannel(repo.guildId, repo.owner, repo.repo, channel);
+			audit(found.session, repo, "channel");
+			return reply.redirect(back(repo, "routing", "channel_saved"));
+		},
+	);
 
-async function resolveRouteNames(
-	ctx: DashboardContext,
-	repo: TrackedRepo,
-): Promise<Map<string, string>> {
-	const names = new Map<string, string>();
-	for (const channelId of Object.values(repo.eventRoutes)) {
-		if (!names.has(channelId)) names.set(channelId, await channelName(ctx, channelId));
-	}
-	return names;
-}
+	app.post<{ Params: RepoParams }>(
+		"/dashboard/g/:guildId/r/:owner/:repo/routing",
+		async (request, reply) => {
+			const found = await repoWrite(request, reply);
+			if (!found) return reply;
+			const { repo, form } = found;
+			// Start from what is stored so rules keyed by a single event type, which
+			// this form does not show, are carried over untouched.
+			const routes = { ...repo.eventRoutes };
+			const mentions = { ...repo.mentionRules };
+			for (const { id } of EVENT_CATEGORIES) {
+				const channel = (form.get(`route.${id}`) ?? "").trim();
+				const role = (form.get(`mention.${id}`) ?? "").trim();
+				// Unchanged values are kept as they are: a channel deleted since, or one
+				// the bot can no longer see, must not block saving the rest of the form.
+				if (channel && channel !== repo.eventRoutes[id]) {
+					if (!(await channelInGuild(ctx.discord, repo.guildId, channel))) {
+						return reply.redirect(back(repo, "routing", "bad_channel"));
+					}
+				}
+				if (role && role !== repo.mentionRules[id]?.[0]) {
+					if (!roleInGuild(ctx.discord, repo.guildId, role)) {
+						return reply.redirect(back(repo, "routing", "bad_role"));
+					}
+				}
+				if (channel) routes[id] = channel;
+				else delete routes[id];
+				if (role) mentions[id] = [role];
+				else delete mentions[id];
+			}
+			await ctx.repository.updateRoutes(repo.guildId, repo.owner, repo.repo, routes);
+			await ctx.repository.updateMentions(repo.guildId, repo.owner, repo.repo, mentions);
+			audit(found.session, repo, "routing");
+			return reply.redirect(back(repo, "routing", "routing_saved"));
+		},
+	);
 
-/** Role ids are meaningless to a human; show the name where Discord will give it. */
-async function resolveRoleNames(
-	ctx: DashboardContext,
-	repo: TrackedRepo,
-): Promise<Map<string, string>> {
-	const names = new Map<string, string>();
-	const ids = [...new Set(Object.values(repo.mentionRules).flat())];
-	if (ids.length === 0) return names;
+	app.post<{ Params: RepoParams }>(
+		"/dashboard/g/:guildId/r/:owner/:repo/style",
+		async (request, reply) => {
+			const found = await repoWrite(request, reply);
+			if (!found) return reply;
+			const { repo, form } = found;
+			const theme = form.get("theme");
+			const mode = form.get("mode");
+			const locale = form.get("locale");
+			await ctx.repository.updateStyle(repo.guildId, repo.owner, repo.repo, {
+				theme: isThemeId(theme) ? theme : null,
+				displayMode: isDisplayMode(mode) ? mode : null,
+				locale: isAppLocale(locale) ? locale : null,
+			});
+			audit(found.session, repo, "appearance");
+			return reply.redirect(back(repo, "appearance", "style_saved"));
+		},
+	);
 
-	const guild = await ctx.discord.guilds.fetch(repo.guildId).catch(() => null);
-	if (!guild) return names;
+	// A POST, so the secret is only ever sent in answer to a request that carried
+	// the form token — never to a link, a prefetch or a history entry.
+	app.post<{ Params: RepoParams }>(
+		"/dashboard/g/:guildId/r/:owner/:repo/secret/reveal",
+		async (request, reply) => {
+			const found = await repoWrite(request, reply);
+			if (!found) return reply;
+			const secret = tryDecryptSecret(found.repo.encryptedSecret, ctx.masterKey);
+			audit(found.session, found.repo, "secret revealed");
+			return renderRepo(
+				reply,
+				found.session,
+				found.repo,
+				"webhook",
+				{},
+				secret,
+				secret === null ? (NOTICES.undecryptable ?? null) : null,
+			);
+		},
+	);
 
-	for (const id of ids) {
-		const role = await guild.roles.fetch(id).catch(() => null);
-		if (role) names.set(id, role.name);
-	}
-	return names;
-}
+	app.post<{ Params: RepoParams }>(
+		"/dashboard/g/:guildId/r/:owner/:repo/secret/rotate",
+		async (request, reply) => {
+			const found = await repoWrite(request, reply);
+			if (!found) return reply;
+			const { repo } = found;
+			const secret = generateWebhookSecret();
+			const updated = await ctx.repository.rotateSecret({
+				guildId: repo.guildId,
+				owner: repo.owner,
+				repo: repo.repo,
+				encryptedSecret: encryptSecret(secret, ctx.masterKey),
+				// A secret stored under an earlier MASTER_KEY cannot bridge anything, so
+				// only keep the old one as a fallback while it still decrypts.
+				encryptedPreviousSecret:
+					tryDecryptSecret(repo.encryptedSecret, ctx.masterKey) === null
+						? null
+						: repo.encryptedSecret,
+			});
+			audit(found.session, repo, "secret rotated");
+			return renderRepo(reply, found.session, updated ?? repo, "webhook", {}, secret, {
+				kind: "ok",
+				text: "New secret generated. Update the webhook on GitHub; the previous secret keeps working until GitHub first uses this one.",
+			});
+		},
+	);
 
-const NOTICES: Record<string, { kind: "ok" | "error"; text: string }> = {
-	paused: { kind: "ok", text: "Deliveries paused. GitHub keeps sending; nothing is posted." },
-	resumed: { kind: "ok", text: "Deliveries resumed." },
-	test_ok: { kind: "ok", text: "Test message posted to the target channel." },
-	test_failed: {
-		kind: "error",
-		text: "Test message could not be posted — see the last error below.",
-	},
-};
-
-function noticeFrom(query: Record<string, unknown>): { kind: "ok" | "error"; text: string } | null {
-	const notice = query.notice;
-	return typeof notice === "string" ? (NOTICES[notice] ?? null) : null;
+	app.post<{ Params: RepoParams }>(
+		"/dashboard/g/:guildId/r/:owner/:repo/remove",
+		async (request, reply) => {
+			const found = await repoWrite(request, reply);
+			if (!found) return reply;
+			const { repo, form } = found;
+			if (form.get("confirm") !== "yes") {
+				return reply.redirect(back(repo, "webhook", "confirm"));
+			}
+			await ctx.repository.removeRepo(repo.guildId, repo.owner, repo.repo);
+			audit(found.session, repo, "removed");
+			return reply.redirect(guildPath(repo.guildId, "/repos?notice=removed"));
+		},
+	);
 }
