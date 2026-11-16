@@ -48,13 +48,19 @@ accepts browser traffic, so it is deliberately narrow:
 - **It can change what `/repo` can change, and nothing more**: add and remove
   repositories, events, filters, channels, role mentions, appearance and server
   settings, plus reveal and rotate a webhook secret.
-- **Every change re-checks the permission live.** The server list in the session cookie
-  is only used to draw pages; before any write the bot asks Discord whether that user
-  still holds `MANAGE_GUILD` in that server, so someone demoted an hour ago cannot use
-  a session that has not expired yet.
+- **Every page and every change re-checks the permission live.** The server list in
+  the session cookie is only a hint; on each request the bot asks Discord whether that
+  user still holds `MANAGE_GUILD` in that server (the answer is reused for 60 seconds),
+  so someone demoted or removed an hour ago cannot use a session that has not expired
+  yet. The lookup bypasses discord.js's member cache: the bot runs without the
+  `GuildMembers` intent, so a cached member never learns of a role change.
 - **Channels and roles must belong to the server being edited.** An id from another
   server is refused, so the dashboard cannot be used to post into a server the user
   does not manage.
+- **Channels the signed-in member cannot see are neither listed nor accepted.** Manage
+  Server does not grant access to private channels, so the dashboard does not either.
+- **Cross-site POSTs are refused before the form token is looked at**, using the
+  browser's `Origin` and `Sec-Fetch-Site` headers.
 - **Secrets are returned only in answer to a POST** carrying the session's form token
   — on add, reveal and rotate — and never appear in a `GET` page, so they cannot end
   up in a link, the history or a reload.

@@ -5,6 +5,28 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] — 2026-11-16
+
+A security release for the dashboard. No migrations, no new environment variables.
+
+### Security
+
+- **The live permission check could be answered from a stale cache.** The bot runs
+  without the `GuildMembers` intent, so discord.js never hears about a member's role
+  changes or departure, and the lookup accepted a cached member. Someone who lost
+  Manage Server — or was kicked — after their first dashboard change kept passing the
+  check until the bot restarted. The lookup now always asks Discord.
+- **Pages are covered by the same check as changes.** A session issued while someone
+  held Manage Server kept showing that server's repositories, filters, channel names
+  and delivery log until it expired, up to `DASHBOARD_SESSION_HOURS` later. Access now
+  ends within a minute of the permission being removed.
+- **Private channels are no longer listed or accepted.** The channel pickers showed
+  every channel in the server, and a form could point a repository at any of them,
+  including ones the signed-in member cannot see in Discord. Both are now limited to
+  channels that member can view.
+- **Cross-site POSTs are refused outright**, on the browser's `Origin` and
+  `Sec-Fetch-Site` headers, before the form token is checked.
+
 ## [1.4.0] — 2026-11-16
 
 The dashboard becomes a control panel. Migration `0006` runs automatically and adds
@@ -511,7 +533,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.1
 [1.4.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.0
 [1.3.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.3.1
 [1.3.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.3.0

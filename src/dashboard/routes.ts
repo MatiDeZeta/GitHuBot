@@ -1,4 +1,4 @@
-import type { Client } from "discord.js";
+import type { Client, GuildMember } from "discord.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RenderOptions } from "../bot/render/render.js";
 import { sampleTemplate } from "../bot/render/samples.js";
@@ -31,7 +31,7 @@ import { parseFilterList } from "../delivery/filters.js";
 import { isAppLocale } from "../i18n/index.js";
 import { metrics } from "../metrics.js";
 import { ASSETS } from "./assets.js";
-import { channelInGuild, guildDirectory, roleInGuild, stillManages } from "./directory.js";
+import { channelInGuild, guildDirectory, roleInGuild, standingOf } from "./directory.js";
 import { authorizeUrl, completeSignIn, createOAuthState } from "./oauth.js";
 import { previewMessages } from "./preview.js";
 import {
@@ -146,6 +146,7 @@ export async function registerDashboard(
 	// Cookies are only marked Secure on https, otherwise a local http deployment
 	// would silently never receive them back.
 	const secure = ctx.env.DASHBOARD_BASE_URL.startsWith("https://");
+	const ownOrigin = new URL(ctx.env.DASHBOARD_BASE_URL).origin;
 	const sessionSeconds = ctx.env.DASHBOARD_SESSION_HOURS * 3600;
 	const sessionCookie = cookieName(SESSION_COOKIE, secure);
 	const stateCookie = cookieName(OAUTH_STATE_COOKIE, secure);
@@ -172,6 +173,24 @@ export async function registerDashboard(
 				.header("content-type", HTML)
 				.header("retry-after", "15")
 				.send(errorPage(503, "GitHuBot is still starting. Try again in a moment."));
+		});
+
+		// The form token already stops cross-site posts; this refuses them one step
+		// earlier, on the browser's own word about where the request came from, so a
+		// leaked token alone is not enough. Requests without these headers (old
+		// browsers, non-browser clients) fall through to the token check.
+		dash.addHook("onRequest", async (request, reply) => {
+			if (request.method !== "POST") return;
+			const origin = request.headers.origin;
+			const site = request.headers["sec-fetch-site"];
+			const foreignOrigin = typeof origin === "string" && origin !== ownOrigin;
+			const foreignSite = typeof site === "string" && site !== "same-origin" && site !== "none";
+			if (!foreignOrigin && !foreignSite) return;
+			ctx.logger.warn({ origin, site }, "Dashboard POST refused: cross-site request");
+			return reply
+				.code(403)
+				.header("content-type", HTML)
+				.send(errorPage(403, "That request did not come from this dashboard."));
 		});
 
 		dash.addHook("onSend", async (_request, reply, payload) => {
@@ -261,11 +280,23 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 
 	// ------------------------------------------------------------- guards --
 
-	/** Signed in, and the server in the URL is one this person managed at sign-in. */
+	interface Access {
+		session: DashboardSession;
+		guildId: string;
+		/** Who is looking, as Discord knows them now: decides which channels they see. */
+		viewer: GuildMember | null;
+	}
+
+	/**
+	 * Signed in, the server in the URL is one this person managed at sign-in, and
+	 * Discord still says they have Manage Server. The session only remembers that
+	 * it was true hours ago; someone demoted or removed since must lose the pages
+	 * as well as the buttons, because the pages show channels, filters and logs.
+	 */
 	async function guildAccess(
 		request: FastifyRequest<{ Params: GuildParams }>,
 		reply: FastifyReply,
-	): Promise<{ session: DashboardSession; guildId: string } | null> {
+	): Promise<Access | null> {
 		const session = sessionOf(request);
 		if (!session) {
 			await reply.redirect("/dashboard");
@@ -276,35 +307,32 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			await html(reply, 403, errorPage(403, "You do not manage that server."));
 			return null;
 		}
-		return { session, guildId };
-	}
-
-	/**
-	 * Everything that changes state passes through here: the form token must match,
-	 * and Discord must still say this person has Manage Server — the session only
-	 * remembers that it was true when they signed in.
-	 */
-	async function writeAccess(
-		request: FastifyRequest<{ Params: GuildParams }>,
-		reply: FastifyReply,
-	): Promise<{ session: DashboardSession; guildId: string; form: URLSearchParams } | null> {
-		const access = await guildAccess(request, reply);
-		if (!access) return null;
-		const form = formOf(request);
-		if (!csrfMatches(access.session.csrfToken, form.get("csrf") ?? undefined)) {
-			await html(reply, 403, errorPage(403, "Invalid form token. Go back, reload and try again."));
-			return null;
-		}
-		if (!(await stillManages(ctx.discord, access.guildId, access.session.userId))) {
+		const standing = await standingOf(ctx.discord, guildId, session.userId);
+		if (!standing.allowed) {
 			ctx.logger.warn(
-				{ userId: access.session.userId, guildId: access.guildId },
-				"Dashboard write refused: Manage Server no longer held",
+				{ userId: session.userId, guildId },
+				"Dashboard access refused: Manage Server no longer held",
 			);
 			await html(
 				reply,
 				403,
 				errorPage(403, "You no longer have Manage Server on that server. Sign in again."),
 			);
+			return null;
+		}
+		return { session, guildId, viewer: standing.member };
+	}
+
+	/** Everything that changes state passes through here: the form token must match too. */
+	async function writeAccess(
+		request: FastifyRequest<{ Params: GuildParams }>,
+		reply: FastifyReply,
+	): Promise<(Access & { form: URLSearchParams }) | null> {
+		const access = await guildAccess(request, reply);
+		if (!access) return null;
+		const form = formOf(request);
+		if (!csrfMatches(access.session.csrfToken, form.get("csrf") ?? undefined)) {
+			await html(reply, 403, errorPage(403, "Invalid form token. Go back, reload and try again."));
 			return null;
 		}
 		return { ...access, form };
@@ -325,11 +353,18 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 	async function repoWrite(
 		request: FastifyRequest<{ Params: RepoParams }>,
 		reply: FastifyReply,
-	): Promise<{ session: DashboardSession; repo: TrackedRepo; form: URLSearchParams } | null> {
+	): Promise<{
+		session: DashboardSession;
+		repo: TrackedRepo;
+		form: URLSearchParams;
+		viewer: GuildMember | null;
+	} | null> {
 		const access = await writeAccess(request, reply);
 		if (!access) return null;
 		const repo = await repoOr404(access.guildId, request.params, reply);
-		return repo ? { session: access.session, repo, form: access.form } : null;
+		return repo
+			? { session: access.session, repo, form: access.form, viewer: access.viewer }
+			: null;
 	}
 
 	function audit(session: DashboardSession, repo: TrackedRepo | string, action: string): void {
@@ -612,7 +647,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				200,
 				settingsPage(shellFor(access.session, access.guildId, "settings", repos), {
 					settings,
-					directory: guildDirectory(ctx.discord, access.guildId),
+					directory: guildDirectory(ctx.discord, access.guildId, access.viewer),
 					previewHtml: previewMessages(
 						renderOptionsFor(null, settings, ctx.renderDefaults),
 						"your-org/your-repo",
@@ -680,7 +715,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			const access = await writeAccess(request, reply);
 			if (!access) return reply;
 			const channel = (access.form.get("channel") ?? "").trim();
-			if (channel && !(await channelInGuild(ctx.discord, access.guildId, channel))) {
+			if (channel && !(await channelInGuild(ctx.discord, access.guildId, channel, access.viewer))) {
 				return reply.redirect(guildPath(access.guildId, "/settings?notice=bad_channel"));
 			}
 			await ctx.repository.updateGuildSettings(access.guildId, {
@@ -702,7 +737,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			200,
 			newRepoPage(
 				shellFor(access.session, access.guildId, "repos", repos),
-				guildDirectory(ctx.discord, access.guildId),
+				guildDirectory(ctx.discord, access.guildId, access.viewer),
 				{ repository: "", channel: "" },
 				null,
 			),
@@ -712,7 +747,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 	app.post<{ Params: GuildParams }>("/dashboard/g/:guildId/repos/new", async (request, reply) => {
 		const access = await writeAccess(request, reply);
 		if (!access) return reply;
-		const { session, guildId, form } = access;
+		const { session, guildId, form, viewer } = access;
 		const values = {
 			repository: (form.get("repository") ?? "").trim().slice(0, 200),
 			channel: (form.get("channel") ?? "").trim(),
@@ -723,7 +758,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				status,
 				newRepoPage(
 					shellFor(session, guildId, "repos", await ctx.repository.listRepos(guildId)),
-					guildDirectory(ctx.discord, guildId),
+					guildDirectory(ctx.discord, guildId, viewer),
 					values,
 					error,
 				),
@@ -731,7 +766,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 
 		const slug = repoSlugSchema.safeParse(values.repository);
 		if (!slug.success) return again(400, "Enter the repository as owner/repo.");
-		if (!(await channelInGuild(ctx.discord, guildId, values.channel))) {
+		if (!(await channelInGuild(ctx.discord, guildId, values.channel, viewer))) {
 			return again(400, "Pick a text, announcement, forum or thread channel in this server.");
 		}
 		const { owner, repo } = slug.data;
@@ -752,7 +787,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 		audit(session, tracked, "added");
 		// Rendered straight from the POST rather than after a redirect: the secret is
 		// shown once and must never travel in a URL.
-		return renderRepo(reply, session, tracked, "webhook", {}, secret, {
+		return renderRepo(reply, session, viewer, tracked, "webhook", {}, secret, {
 			kind: "ok",
 			text: "Repository added. Finish by creating the webhook on GitHub with the URL and secret below.",
 		});
@@ -763,6 +798,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 	async function renderRepo(
 		reply: FastifyReply,
 		session: DashboardSession,
+		viewer: GuildMember | null,
 		repo: TrackedRepo,
 		tab: RepoTab,
 		query: Query,
@@ -792,7 +828,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 					activity: activity.get(repo.trackingId) ?? new Array<number>(ACTIVITY_DAYS).fill(0),
 				},
 				tab,
-				directory: guildDirectory(ctx.discord, repo.guildId),
+				directory: guildDirectory(ctx.discord, repo.guildId, viewer),
 				settings,
 				effective,
 				log: log.rows,
@@ -819,6 +855,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			return renderRepo(
 				reply,
 				access.session,
+				access.viewer,
 				repo,
 				tab,
 				request.query,
@@ -923,7 +960,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			if (!found) return reply;
 			const { repo, form } = found;
 			const channel = (form.get("channel") ?? "").trim();
-			if (!(await channelInGuild(ctx.discord, repo.guildId, channel))) {
+			if (!(await channelInGuild(ctx.discord, repo.guildId, channel, found.viewer))) {
 				return reply.redirect(back(repo, "routing", "bad_channel"));
 			}
 			await ctx.repository.updateChannel(repo.guildId, repo.owner, repo.repo, channel);
@@ -948,7 +985,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 				// Unchanged values are kept as they are: a channel deleted since, or one
 				// the bot can no longer see, must not block saving the rest of the form.
 				if (channel && channel !== repo.eventRoutes[id]) {
-					if (!(await channelInGuild(ctx.discord, repo.guildId, channel))) {
+					if (!(await channelInGuild(ctx.discord, repo.guildId, channel, found.viewer))) {
 						return reply.redirect(back(repo, "routing", "bad_channel"));
 					}
 				}
@@ -1000,6 +1037,7 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 			return renderRepo(
 				reply,
 				found.session,
+				found.viewer,
 				found.repo,
 				"webhook",
 				{},
@@ -1029,10 +1067,19 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 						: repo.encryptedSecret,
 			});
 			audit(found.session, repo, "secret rotated");
-			return renderRepo(reply, found.session, updated ?? repo, "webhook", {}, secret, {
-				kind: "ok",
-				text: "New secret generated. Update the webhook on GitHub; the previous secret keeps working until GitHub first uses this one.",
-			});
+			return renderRepo(
+				reply,
+				found.session,
+				found.viewer,
+				updated ?? repo,
+				"webhook",
+				{},
+				secret,
+				{
+					kind: "ok",
+					text: "New secret generated. Update the webhook on GitHub; the previous secret keeps working until GitHub first uses this one.",
+				},
+			);
 		},
 	);
 

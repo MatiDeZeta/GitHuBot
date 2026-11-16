@@ -1,4 +1,4 @@
-import { ChannelType, type Client, PermissionFlagsBits } from "discord.js";
+import { ChannelType, type Client, type GuildMember, PermissionFlagsBits } from "discord.js";
 
 export interface DirectoryChannel {
 	id: string;
@@ -32,10 +32,34 @@ const KINDS: Partial<Record<ChannelType, DirectoryChannel["kind"]>> = {
 const EMPTY: GuildDirectory = { available: false, channels: [], roles: [] };
 
 /**
+ * Manage Server does not let someone see a private channel, so neither may the
+ * dashboard: a channel is offered, and accepted, only if the signed-in member
+ * can view it in Discord. Otherwise the pickers would list the names of hidden
+ * channels, and a form post could aim a repository's messages into one.
+ */
+function visibleTo(channel: unknown, viewer: GuildMember | null | undefined): boolean {
+	if (viewer === undefined) return true;
+	if (viewer === null) return false;
+	const permissionsFor = (channel as { permissionsFor?: unknown }).permissionsFor;
+	// Every real server channel has it; only a non-server channel would not, and
+	// those are already rejected by the `guildId` and kind checks.
+	if (typeof permissionsFor !== "function") return true;
+	const permissions = permissionsFor.call(channel, viewer) as {
+		has(bit: bigint): boolean;
+	} | null;
+	return permissions?.has(PermissionFlagsBits.ViewChannel) ?? false;
+}
+
+/**
  * The channels and roles the dashboard offers in its pickers, read from the
  * gateway cache the bot already keeps — no extra Discord request per page.
+ * With a `viewer`, channels that member cannot see are left out.
  */
-export function guildDirectory(client: Client, guildId: string): GuildDirectory {
+export function guildDirectory(
+	client: Client,
+	guildId: string,
+	viewer?: GuildMember | null,
+): GuildDirectory {
 	const guild = client.guilds?.cache?.get(guildId);
 	if (!guild) return EMPTY;
 
@@ -43,6 +67,7 @@ export function guildDirectory(client: Client, guildId: string): GuildDirectory 
 	for (const channel of guild.channels.cache.values()) {
 		const kind = KINDS[channel.type];
 		if (!kind) continue;
+		if (!visibleTo(channel, viewer)) continue;
 		channels.push({
 			id: channel.id,
 			name: channel.name,
@@ -74,11 +99,13 @@ export async function channelInGuild(
 	client: Client,
 	guildId: string,
 	channelId: string,
+	viewer?: GuildMember | null,
 ): Promise<boolean> {
 	if (!/^\d{17,20}$/.test(channelId)) return false;
 	const channel = await client.channels.fetch(channelId).catch(() => null);
 	if (!channel || !("guildId" in channel) || channel.guildId !== guildId) return false;
-	return KINDS[channel.type] !== undefined;
+	if (KINDS[channel.type] === undefined) return false;
+	return visibleTo(channel, viewer);
 }
 
 export function roleInGuild(client: Client, guildId: string, roleId: string): boolean {
@@ -88,37 +115,61 @@ export function roleInGuild(client: Client, guildId: string, roleId: string): bo
 
 const RECHECK_MS = 60_000;
 const MAX_CACHED = 5_000;
-const verified = new Map<string, { allowed: boolean; at: number }>();
+
+export interface Standing {
+	/** Whether this person holds Manage Server (or owns the server) right now. */
+	allowed: boolean;
+	/** Their membership, for per-channel visibility. Null when they are not a member. */
+	member: GuildMember | null;
+}
+
+const verified = new Map<string, Standing & { at: number }>();
 
 /**
- * The session records who managed which server at sign-in, and lasts for hours.
- * Reading with a stale grant is tolerable; changing settings is not, so every
- * write asks Discord — through the bot's own view of the server — whether this
- * person still has Manage Server. Cached briefly so a burst of saves costs one
- * lookup.
+ * The session records who managed which server at sign-in, and lasts for hours,
+ * so it is only a hint. Every page and every change asks Discord — through the
+ * bot's own view of the server — whether this person still has Manage Server.
+ * Cached briefly so a burst of requests costs one lookup.
  */
+export async function standingOf(
+	client: Client,
+	guildId: string,
+	userId: string,
+	now = Date.now(),
+): Promise<Standing> {
+	const key = `${guildId}:${userId}`;
+	const cached = verified.get(key);
+	if (cached && now - cached.at < RECHECK_MS) return cached;
+
+	const standing = await lookUp(client, guildId, userId);
+	if (verified.size >= MAX_CACHED) verified.clear();
+	verified.set(key, { ...standing, at: now });
+	return standing;
+}
+
 export async function stillManages(
 	client: Client,
 	guildId: string,
 	userId: string,
 	now = Date.now(),
 ): Promise<boolean> {
-	const key = `${guildId}:${userId}`;
-	const cached = verified.get(key);
-	if (cached && now - cached.at < RECHECK_MS) return cached.allowed;
-
-	const allowed = await lookUp(client, guildId, userId);
-	if (verified.size >= MAX_CACHED) verified.clear();
-	verified.set(key, { allowed, at: now });
-	return allowed;
+	return (await standingOf(client, guildId, userId, now)).allowed;
 }
 
-async function lookUp(client: Client, guildId: string, userId: string): Promise<boolean> {
+async function lookUp(client: Client, guildId: string, userId: string): Promise<Standing> {
 	const guild = client.guilds?.cache?.get(guildId);
-	if (!guild) return false;
-	if (guild.ownerId === userId) return true;
-	const member = await guild.members.fetch(userId).catch(() => null);
-	return member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false;
+	if (!guild) return { allowed: false, member: null };
+	// `force` is the point of the whole check. The bot runs without the
+	// GuildMembers intent, so Discord never tells it when a member's roles change
+	// or when they leave: a member already in discord.js's cache keeps the roles
+	// they had when first fetched. Reading that cache would report Manage Server
+	// for someone demoted or kicked since — until the bot restarted.
+	const member = await guild.members.fetch({ user: userId, force: true }).catch(() => null);
+	if (guild.ownerId === userId) return { allowed: true, member };
+	return {
+		allowed: member?.permissions.has(PermissionFlagsBits.ManageGuild) ?? false,
+		member,
+	};
 }
 
 export function resetPermissionCache(): void {

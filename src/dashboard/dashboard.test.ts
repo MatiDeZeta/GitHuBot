@@ -40,13 +40,22 @@ const ROLE = "666666666666666666";
  * role, a channel belonging to another server, and a member lookup whose answer
  * the test controls.
  */
-function fakeDiscord(options: { manages?: boolean } = {}): Client {
+function fakeDiscord(
+	options: {
+		manages?: boolean;
+		/** Channels the signed-in member cannot view in Discord. */
+		hidden?: string[];
+		/** Receives the argument of every member lookup. */
+		lookups?: unknown[];
+	} = {},
+): Client {
 	const channel = (id: string, name: string, guildId: string) => ({
 		id,
 		name,
 		guildId,
 		type: ChannelType.GuildText,
 		rawPosition: 0,
+		permissionsFor: () => ({ has: () => !options.hidden?.includes(id) }),
 	});
 	const own = [channel(CHANNEL, "changelog", GUILD), channel(SECOND_CHANNEL, "ci", GUILD)];
 	const all = new Map(
@@ -59,7 +68,12 @@ function fakeDiscord(options: { manages?: boolean } = {}): Client {
 		roles: {
 			cache: new Map([[ROLE, { id: ROLE, name: "devs", managed: false, position: 1 }]]),
 		},
-		members: { fetch: async () => ({ permissions: { has: () => options.manages ?? true } }) },
+		members: {
+			fetch: async (query: unknown) => {
+				options.lookups?.push(query);
+				return { permissions: { has: () => options.manages ?? true } };
+			},
+		},
 	};
 	return {
 		guilds: { cache: new Map([[GUILD, guild]]) },
@@ -617,10 +631,14 @@ describe("dashboard routes", () => {
 			expect(stale.statusCode).toBe(404);
 		});
 
-		it("refuses every change once Discord says Manage Server is gone", async () => {
+		it("refuses every page and change once Discord says Manage Server is gone", async () => {
 			app = await build(DASHBOARD_ENV, fakeDiscord({ manages: false }));
-			// The session is still valid — it was issued while the permission was held.
-			expect((await get(repoUrl)).statusCode).toBe(200);
+			// The session is still valid — it was issued while the permission was held —
+			// but the pages show channels, filters and logs, so they go too.
+			const page = await get(repoUrl);
+			expect(page.statusCode).toBe(403);
+			expect(page.body).toContain("no longer have Manage Server");
+			expect((await get(`/dashboard/g/${GUILD}`)).statusCode).toBe(403);
 
 			const res = await post(`${repoUrl}/pause`);
 			expect(res.statusCode).toBe(403);
@@ -630,6 +648,58 @@ describe("dashboard routes", () => {
 			const removed = await post(`${repoUrl}/remove`, [["confirm", "yes"]]);
 			expect(removed.statusCode).toBe(403);
 			expect(await db.repository.getRepo(GUILD, "acme", "app")).not.toBeNull();
+		});
+
+		it("asks Discord afresh instead of trusting a cached member", async () => {
+			// Without the GuildMembers intent a cached member keeps the roles they had
+			// when first fetched, so an unforced lookup would never notice a demotion.
+			const lookups: unknown[] = [];
+			app = await build(DASHBOARD_ENV, fakeDiscord({ lookups }));
+			expect((await get(repoUrl)).statusCode).toBe(200);
+			expect(lookups).toEqual([{ user: "1", force: true }]);
+		});
+
+		it("neither lists nor accepts a channel the signed-in member cannot see", async () => {
+			app = await build(DASHBOARD_ENV, fakeDiscord({ hidden: [SECOND_CHANNEL] }));
+			const page = await get(`/dashboard/g/${GUILD}/repos/new`);
+			expect(page.statusCode).toBe(200);
+			expect(page.body).toContain(CHANNEL);
+			expect(page.body).not.toContain(SECOND_CHANNEL);
+
+			const moved = await post(`${repoUrl}/channel`, [["channel", SECOND_CHANNEL]]);
+			expect(moved.headers.location).toContain("notice=bad_channel");
+			expect((await stored()).channelId).toBe(CHANNEL);
+
+			const added = await post(`/dashboard/g/${GUILD}/repos/new`, [
+				["repository", "acme/hidden"],
+				["channel", SECOND_CHANNEL],
+			]);
+			expect(added.statusCode).toBe(400);
+			expect(await db.repository.getRepo(GUILD, "acme", "hidden")).toBeNull();
+		});
+
+		it("refuses a POST the browser says came from another site", async () => {
+			app = await build(DASHBOARD_ENV);
+			const send = (headers: Record<string, string>) =>
+				app.inject({
+					method: "POST",
+					url: `${repoUrl}/pause`,
+					headers: { cookie, ...FORM, ...headers },
+					// A correct form token: these are refused on provenance alone.
+					payload: new URLSearchParams([["csrf", csrf]]).toString(),
+				});
+
+			expect((await send({ origin: "https://evil.example" })).statusCode).toBe(403);
+			expect((await send({ "sec-fetch-site": "cross-site" })).statusCode).toBe(403);
+			expect((await send({ "sec-fetch-site": "same-site" })).statusCode).toBe(403);
+			expect((await stored()).paused).toBe(false);
+
+			const own = await send({
+				origin: "https://bot.example.com",
+				"sec-fetch-site": "same-origin",
+			});
+			expect(own.statusCode).toBe(302);
+			expect((await stored()).paused).toBe(true);
 		});
 
 		it("shuts out a session once DISCORD_ALLOWED_USER_ID names someone else", async () => {

@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.4.0-8b5cf6?style=flat-square" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.4.1-8b5cf6?style=flat-square" alt="Version"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-24_LTS-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node"></a>
   <a href="https://discord.js.org/"><img src="https://img.shields.io/badge/discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white" alt="discord.js"></a>
   <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-11-F69220?style=flat-square&logo=pnpm&logoColor=white" alt="pnpm"></a>
@@ -334,8 +334,9 @@ What it can do, per server:
   reveal/rotate secret, pause/resume, send a test message, and the delivery log.
 - **Server settings** — default theme, density, language and the failure-alert channel.
 
-Every change re-checks with Discord that you still hold Manage Server, and a channel
-or role is accepted only if it belongs to the server being edited. Webhook secrets are
+Every page and every change re-checks with Discord that you still hold Manage Server.
+A channel is offered and accepted only if it belongs to the server being edited and
+you can see it in Discord; a role only if it belongs to that server. Webhook secrets are
 only ever returned in answer to a form submission, never in a page you can link to or
 reload.
 
