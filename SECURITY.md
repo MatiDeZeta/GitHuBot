@@ -60,7 +60,7 @@ accepts browser traffic, so it is deliberately narrow:
 - **Channels the signed-in member cannot see are neither listed nor accepted.** Manage
   Server does not grant access to private channels, so the dashboard does not either.
 - **Cross-site POSTs are refused before the form token is looked at**, using the
-  browser's `Origin` and `Sec-Fetch-Site` headers.
+  browser's `Sec-Fetch-Site` header, or `Origin` where that is absent.
 - **Secrets are returned only in answer to a POST** carrying the session's form token
   — on add, reveal and rotate — and never appear in a `GET` page, so they cannot end
   up in a link, the history or a reload.

@@ -179,13 +179,21 @@ export async function registerDashboard(
 		// earlier, on the browser's own word about where the request came from, so a
 		// leaked token alone is not enough. Requests without these headers (old
 		// browsers, non-browser clients) fall through to the token check.
+		//
+		// `Sec-Fetch-Site` decides when it is present. `Origin` is only a fallback,
+		// and `null` in it means nothing: these pages are served with
+		// `Referrer-Policy: no-referrer`, under which a browser sends `Origin: null`
+		// on the dashboard's own form posts. Treating that as foreign refused every
+		// form in a real browser.
 		dash.addHook("onRequest", async (request, reply) => {
 			if (request.method !== "POST") return;
 			const origin = request.headers.origin;
 			const site = request.headers["sec-fetch-site"];
-			const foreignOrigin = typeof origin === "string" && origin !== ownOrigin;
-			const foreignSite = typeof site === "string" && site !== "same-origin" && site !== "none";
-			if (!foreignOrigin && !foreignSite) return;
+			const foreign =
+				typeof site === "string"
+					? site !== "same-origin" && site !== "none"
+					: typeof origin === "string" && origin !== "null" && origin !== ownOrigin;
+			if (!foreign) return;
 			ctx.logger.warn({ origin, site }, "Dashboard POST refused: cross-site request");
 			return reply
 				.code(403)
@@ -456,6 +464,10 @@ function registerRoutes(app: FastifyInstance, ctx: DashboardContext, opts: Route
 	}
 
 	// ------------------------------------------------------------- sign-in --
+
+	// Typed or bookmarked with a trailing slash, which the router treats as a
+	// different path and would answer with a bare JSON 404.
+	app.get("/dashboard/", async (_request, reply) => reply.redirect("/dashboard"));
 
 	app.get("/dashboard", async (request, reply) => {
 		const session = sessionOf(request);

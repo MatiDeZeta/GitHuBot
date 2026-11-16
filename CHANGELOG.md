@@ -5,6 +5,21 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] — 2026-11-16
+
+Fixes a regression in 1.4.1. No migrations, no new environment variables.
+
+### Fixed
+
+- **Every dashboard form was refused in a real browser** with "That request did not
+  come from this dashboard" — saving, pausing, signing out, all of them. The
+  cross-site check added in 1.4.1 compared the `Origin` header to the dashboard's
+  address, but the pages are served with `Referrer-Policy: no-referrer`, under which
+  browsers send `Origin: null` on same-origin form posts. `Sec-Fetch-Site` now
+  decides, and `Origin` is only consulted when that header is absent.
+- **`/dashboard/` with a trailing slash** answered a bare JSON 404; it now redirects
+  to `/dashboard`.
+
 ## [1.4.1] — 2026-11-16
 
 A security release for the dashboard. No migrations, no new environment variables.
@@ -533,7 +548,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.2
 [1.4.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.1
 [1.4.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.0
 [1.3.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.3.1

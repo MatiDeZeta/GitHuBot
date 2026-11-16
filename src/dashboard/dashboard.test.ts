@@ -694,12 +694,19 @@ describe("dashboard routes", () => {
 			expect((await send({ "sec-fetch-site": "same-site" })).statusCode).toBe(403);
 			expect((await stored()).paused).toBe(false);
 
-			const own = await send({
-				origin: "https://bot.example.com",
-				"sec-fetch-site": "same-origin",
-			});
+			// What a real browser sends for the dashboard's own forms: the pages carry
+			// `Referrer-Policy: no-referrer`, which turns the Origin header into `null`.
+			const own = await send({ origin: "null", "sec-fetch-site": "same-origin" });
 			expect(own.statusCode).toBe(302);
 			expect((await stored()).paused).toBe(true);
+
+			// A browser without Sec-Fetch-Site, same policy: the form token decides.
+			expect((await send({ origin: "null" })).statusCode).toBe(302);
+			expect((await send({ origin: "https://bot.example.com" })).statusCode).toBe(302);
+
+			const slash = await app.inject({ method: "GET", url: "/dashboard/" });
+			expect(slash.statusCode).toBe(302);
+			expect(slash.headers.location).toBe("/dashboard");
 		});
 
 		it("shuts out a session once DISCORD_ALLOWED_USER_ID names someone else", async () => {
