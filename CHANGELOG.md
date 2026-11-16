@@ -5,6 +5,20 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] — 2026-11-16
+
+No migrations, no new environment variables.
+
+### Changed
+
+- **Release messages read like release notes.** A release body is written for a web
+  page, and pasted into Discord as it was it showed `##` headings as literal text,
+  broke every hard-wrapped line mid-sentence, repeated the version in a first heading
+  and could be cut off inside a code span. Section headings are now bold labels,
+  wrapped lines are rejoined, each bullet is kept to its opening, the redundant version
+  heading is dropped, and the notes are cut between lines with a closing `…`. The body
+  is still quoted and still cannot fake a heading, a link or a mention.
+
 ## [1.5.0] — 2026-11-16
 
 Migration `0007` runs automatically and adds two tables. One new optional
@@ -580,7 +594,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.1
 [1.5.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.0
 [1.4.2]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.2
 [1.4.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.4.1

@@ -1,7 +1,8 @@
 import type { PackagePayload, ReleasePayload } from "../../../github/payloads.js";
 import { tx } from "../../../i18n/index.js";
+import { neutralizeBodyMarkdown } from "../blocks.js";
 import type { EventTemplate, TemplateField, TemplateImage } from "../template.js";
-import { actorBits, code, links, quote, repoBits, repositoryLink, titleText } from "./common.js";
+import { actorBits, code, links, repoBits, repositoryLink, titleText } from "./common.js";
 
 const IMAGE_PATTERN = /!\[[^\]]*\]\((https?:\/\/[^\s)]+\.(?:png|jpe?g|gif|webp))\)/gi;
 
@@ -15,6 +16,141 @@ function extractImages(body: string | null | undefined): TemplateImage[] {
 		if (out.length >= 4) break;
 	}
 	return out;
+}
+
+const NOTES_MAX = 1100;
+/** A changelog bullet is a headline plus an explanation; the headline is what fits. */
+const ITEM_MAX = 170;
+
+/** Cuts at a word, and never leaves a code span or bold run open behind it. */
+function clipText(value: string, max: number): string {
+	if (value.length <= max) return value;
+	let cut = value.slice(0, max - 1);
+	const space = cut.lastIndexOf(" ");
+	if (space > max * 0.6) cut = cut.slice(0, space);
+	// An odd backtick means the cut landed inside inline code: drop the open span,
+	// or everything after it would render as code.
+	if ((cut.match(/`/g)?.length ?? 0) % 2 === 1) cut = cut.slice(0, cut.lastIndexOf("`"));
+	cut = cut.replace(/[\s,;:—–-]+$/, "");
+	if ((cut.match(/\*\*/g)?.length ?? 0) % 2 === 1) cut += "**";
+	return `${cut}…`;
+}
+
+/**
+ * Release notes are written for a web page: `##` headings, bullets hard-wrapped at
+ * 80 columns, a first heading repeating the version. Pasted into Discord as they
+ * are, the headings show as literal `##` (untrusted headings are escaped on
+ * purpose), every wrapped line breaks mid-sentence, and a cut at a fixed length
+ * can land inside a code span.
+ *
+ * This reshapes them for a chat message: section headings become bold labels,
+ * wrapped lines are rejoined, each bullet is kept to its opening, and the whole is
+ * cut between lines rather than through one. The result is still quoted and still
+ * neutralized, so a release body cannot fake the bot's own header or a link.
+ */
+export function releaseNotes(
+	body: string | null | undefined,
+	/** Version labels (tag, release name) whose heading would only repeat the title. */
+	redundant: string[] = [],
+	max = NOTES_MAX,
+): string | undefined {
+	if (!body?.trim()) return undefined;
+	const source = body
+		.replace(/\r/g, "")
+		.replace(/<!--[\s\S]*?-->/g, "")
+		// Images go to the gallery; their markdown would show as a bare link.
+		.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
+	const versions = redundant
+		.map((label) => label.trim().replace(/^v/i, "").toLowerCase())
+		.filter((label) => label.length > 0);
+
+	type Block = { kind: "heading" | "item" | "text" | "code"; text: string };
+	const blocks: Block[] = [];
+	let open: Block | null = null;
+	let fenced = false;
+	for (const raw of source.split("\n")) {
+		if (/^\s*```/.test(raw)) {
+			fenced = !fenced;
+			open = null;
+			blocks.push({ kind: "code", text: raw.trim() });
+			continue;
+		}
+		if (fenced) {
+			blocks.push({ kind: "code", text: raw });
+			continue;
+		}
+		const line = raw.trim();
+		if (!line) {
+			open = null;
+			continue;
+		}
+		const heading = /^#{1,6}\s+(.+?)\s*#*$/.exec(line);
+		if (heading) {
+			open = null;
+			const text = (heading[1] ?? "").replace(/\*\*/g, "");
+			const lower = text.toLowerCase();
+			// "## [1.5.0] — 2026-11-16" above notes already titled v1.5.0.
+			if (blocks.length === 0 && versions.some((version) => lower.includes(version))) continue;
+			blocks.push({ kind: "heading", text });
+			continue;
+		}
+		const item = /^(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
+		if (item) {
+			open = { kind: "item", text: item[1] ?? "" };
+			blocks.push(open);
+			continue;
+		}
+		// A wrapped continuation of the bullet or paragraph above it.
+		if (open) {
+			open.text += ` ${line}`;
+			continue;
+		}
+		open = { kind: "text", text: line };
+		blocks.push(open);
+	}
+
+	const lines: string[] = [];
+	let used = 0;
+	let dropped = false;
+	for (const block of blocks) {
+		const text =
+			block.kind === "heading"
+				? `**${block.text}**`
+				: block.kind === "item"
+					? `- ${clipText(block.text, ITEM_MAX)}`
+					: block.kind === "text"
+						? clipText(block.text, ITEM_MAX * 2)
+						: block.text;
+		// A blank line sets a section apart from whatever came before it.
+		const gap = block.kind === "heading" && lines.length > 0 ? 1 : 0;
+		// A heading with nothing under it says nothing, so it needs room for a line too.
+		const reserve = block.kind === "heading" ? 40 : 0;
+		if (used + gap + text.length + 1 + reserve > max) {
+			dropped = true;
+			break;
+		}
+		if (gap) lines.push("");
+		lines.push(text);
+		used += gap + text.length + 1;
+	}
+	// An unclosed fence would swallow the rest of the message.
+	if (lines.filter((line) => line.startsWith("```")).length % 2 === 1) lines.push("```");
+	if (dropped) {
+		// A section label with nothing left under it promises content that is not there.
+		while (
+			lines.length > 0 &&
+			(lines.at(-1) === "" || /^\*\*[^*]+\*\*$/.test(lines.at(-1) ?? ""))
+		) {
+			lines.pop();
+		}
+	}
+	if (lines.length === 0) return undefined;
+	if (dropped) lines.push("…");
+
+	return neutralizeBodyMarkdown(lines.join("\n"))
+		.split("\n")
+		.map((line) => `> ${line}`)
+		.join("\n");
 }
 
 export function formatRelease(payload: ReleasePayload): EventTemplate | null {
@@ -60,7 +196,10 @@ export function formatRelease(payload: ReleasePayload): EventTemplate | null {
 		repoUrl: bits.repoUrl,
 		language: bits.language,
 		actor: actorBits(release.author ?? payload.sender),
-		body: action === "deleted" ? undefined : quote(release.body, 900),
+		body:
+			action === "deleted"
+				? undefined
+				: releaseNotes(release.body, [release.tag_name, release.name ?? ""]),
 		fields,
 		images: action === "deleted" ? undefined : extractImages(release.body),
 		links: links({ label: tx("link.release"), url: release.html_url }, repositoryLink(bits)),
