@@ -5,6 +5,17 @@ All notable changes to GitHuBot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] — 2026-11-19
+
+A security release for the Docker image. No code changes, no migrations, no new
+environment variables.
+
+### Security
+
+- **The Docker image runs Node.js 24.22.3**, the release of 11 November 2026 that
+  fixes sixteen advisories in HTTP/2, HTTPS and TLS handling. The base image was
+  pinned by digest to an older Node 24 build; the digest now points at 24.22.3.
+
 ## [1.5.2] — 2026-11-16
 
 A security release from a full review of the code. No migrations, no new environment
@@ -638,7 +649,8 @@ verified byte-identical to `@esbuild/linux-x64`. Then hardened the pipeline:
   Components V2 changelog messages, AES-256-GCM encrypted webhook secrets,
   signature verification, delivery deduplication, SQLite and Postgres support.
 
-[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.5.2...HEAD
+[Unreleased]: https://github.com/MatiDeZeta/GitHuBot/compare/v1.5.3...HEAD
+[1.5.3]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.3
 [1.5.2]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.2
 [1.5.1]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.1
 [1.5.0]: https://github.com/MatiDeZeta/GitHuBot/releases/tag/v1.5.0
