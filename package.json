@@ -25,9 +25,9 @@
 		"db:migrate": "tsx --env-file-if-exists=.env src/db/migrate.ts"
 	},
 	"dependencies": {
-		"@fastify/rate-limit": "^11.2.2",
+		"@fastify/rate-limit": "^11.3.0",
 		"@octokit/webhooks-methods": "^6.0.0",
-		"better-sqlite3": "^13.0.1",
+		"better-sqlite3": "^13.2.0",
 		"discord.js": "^14.28.1",
 		"drizzle-orm": "^0.45.4",
 		"fastify": "^5.12.8",
